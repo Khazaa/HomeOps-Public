@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { api } from './api';
 import { BrandMark, Icon } from './Icons';
+import { randomId } from './randomId';
 import { RemoteTab } from './RemoteTab';
 import type { AuditEvent, Category, Credential, Resource, ResourceType, Tab } from './types';
 import { WebTab } from './WebTab';
@@ -235,7 +236,7 @@ export function App() {
     const trimmed = name.trim();
     if (!trimmed) return;
     if (workspaces.some(workspace => workspace.name.localeCompare(trimmed, 'de', { sensitivity: 'base' }) === 0)) { setNotice('Ein Arbeitsbereich mit diesem Namen existiert bereits.'); return; }
-    const id = crypto.randomUUID();
+    const id = randomId();
     updatePreferences(current => ({ ...current, workspaces: [...parseWorkspaces(current), { id, name: trimmed, resourceIds: [] }] }));
     setActiveWorkspaceId(id);
     setActive('dashboard');
@@ -268,7 +269,7 @@ export function App() {
       for (const resource of selected) {
         const existing = next.find(tab => tab.resourceId === resource.id && tab.workspaceId === workspaceId);
         if (existing) { if (!targetId) targetId = existing.id; continue; }
-        const tab = { id: crypto.randomUUID(), resourceId: resource.id, title: resource.name, type: resource.type, workspaceId };
+        const tab = { id: randomId(), resourceId: resource.id, title: resource.name, type: resource.type, workspaceId };
         next.push(tab); if (!targetId) targetId = tab.id;
       }
       const first = targetId || next.find(tab => tab.workspaceId === workspaceId)?.id;
@@ -283,7 +284,7 @@ export function App() {
     rememberResource(resource.id);
     const existing = !another && tabs.find(tab => tab.resourceId === resource.id);
     if (existing) { setActiveWorkspaceId(existing.workspaceId); return setActive(existing.id); }
-    const tab = { id: crypto.randomUUID(), resourceId: resource.id, title: resource.name, type: resource.type, workspaceId: activeWorkspaceId };
+    const tab = { id: randomId(), resourceId: resource.id, title: resource.name, type: resource.type, workspaceId: activeWorkspaceId };
     setTabs(current => [...current, tab]);
     if (activeWorkspaceId !== INBOX_WORKSPACE_ID) setWorkspaceMembership(INBOX_WORKSPACE_ID, activeWorkspaceId, resource.id, false);
     setActive(tab.id);

@@ -45,6 +45,22 @@ Mit OpenSSL lassen sich geeignete Werte erzeugen. Den Befehl für jedes Secret s
 openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n'
 ```
 
+Unter Windows lässt sich derselbe 43 Zeichen lange Base64url-Wert in PowerShell erzeugen:
+
+```powershell
+$bytes = [byte[]]::new(32)
+[Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+[Convert]::ToBase64String($bytes).TrimEnd('=').Replace('+','-').Replace('/','_')
+```
+
+Alternativ als PowerShell-Einzeiler:
+
+```powershell
+$b=[byte[]]::new(32); [Security.Cryptography.RandomNumberGenerator]::Fill($b); [Convert]::ToBase64String($b).TrimEnd('=').Replace('+','-').Replace('/','_')
+```
+
+Den ausgegebenen Wert ohne Anführungszeichen eintragen, beispielsweise als `MASTER_KEY=erzeugter_Wert`. Für `POSTGRES_PASSWORD`, `MASTER_KEY` und `GUAC_TOKEN_KEY` jeweils einen neuen, unabhängigen Wert erzeugen. Den `MASTER_KEY` anschließend sicher sichern; ohne ihn lassen sich gespeicherte Credentials nicht wiederherstellen.
+
 Danach starten:
 
 ```sh

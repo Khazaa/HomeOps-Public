@@ -816,6 +816,8 @@ function ResourceEditor({ resource, categories, credentials, onCancel, onSaved }
   const [mode, setMode] = useState(String(resource?.config.mode ?? 'auto'));
   const [webAuthType, setWebAuthType] = useState(String(resource?.config.authType ?? 'none'));
   const [categoryId, setCategory] = useState(resource?.categoryId ?? '');
+  const [creatingCategory, setCreatingCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
   const [secret, setSecret] = useState('');
   const [credentialId, setCredentialId] = useState(resource?.credentialId ?? '');
   const [creatingCredential, setCreatingCredential] = useState(false);
@@ -828,6 +830,7 @@ function ResourceEditor({ resource, categories, credentials, onCancel, onSaved }
     event.preventDefault();
     setError('');
     let createdCredentialId: string | null = null;
+    let createdCategoryId: string | null = null;
     let resourcePersisted = false;
     try {
       const effectiveUsername = type !== 'web' && creatingCredential ? newCredentialUsername.trim() : username;
@@ -837,22 +840,32 @@ function ResourceEditor({ resource, categories, credentials, onCancel, onSaved }
           ? { host: target, port: Number(port), username: effectiveUsername, authType, verifyHostKey, hostKeyFingerprint: verifyHostKey ? hostKey : '' }
           : { host: target, port: Number(port), username: effectiveUsername, domain: domain || undefined, security, ignoreCertificate };
       const parsedTags = [...new Set(tags.split(',').map(tag => tag.trim()).filter(Boolean))];
+      if (creatingCategory) {
+        const created = await api.createCategory(newCategoryName.trim());
+        createdCategoryId = created.id;
+      }
       if (creatingCredential && (type !== 'web' || webAuthType === 'basic')) {
         const kind: Credential['kind'] = type === 'ssh' && authType === 'private_key' ? 'private_key' : 'password';
         const created = await api.createCredential({ name: newCredentialName.trim(), username: newCredentialUsername.trim(), kind, secret: newCredentialSecret, expiresAt: null });
         createdCredentialId = created.id;
       }
       const effectiveCredentialId = type === 'web' && webAuthType !== 'basic' ? null : (createdCredentialId ?? credentialId) || null;
-      const body = { name, notes, tags: parsedTags, categoryId: categoryId || null, icon: resource?.icon ?? 'link', position: resource?.position ?? 0, enabled: resource?.enabled ?? true, credentialId: effectiveCredentialId, config, ...(!effectiveCredentialId && secret ? { secret } : {}) };
+      const body = { name, notes, tags: parsedTags, categoryId: (createdCategoryId ?? categoryId) || null, icon: resource?.icon ?? 'link', position: resource?.position ?? 0, enabled: resource?.enabled ?? true, credentialId: effectiveCredentialId, config, ...(!effectiveCredentialId && secret ? { secret } : {}) };
       if (resource) await api.updateResource(resource.id, body);
       else await api.createResource({ ...body, type });
       resourcePersisted = true;
       await onSaved();
     } catch (reason) {
+      const cleanupFailures: string[] = [];
       if (createdCredentialId && !resourcePersisted) {
         try { await api.deleteCredential(createdCredentialId); }
-        catch { setError('Ressource konnte nicht gespeichert werden; das neu angelegte Credential muss unter Zugangsdaten geprüft werden.'); return; }
+        catch { cleanupFailures.push('das neu angelegte Credential unter Zugangsdaten'); }
       }
+      if (createdCategoryId && !resourcePersisted) {
+        try { await api.deleteCategory(createdCategoryId); }
+        catch { cleanupFailures.push('die neu angelegte Gruppe'); }
+      }
+      if (cleanupFailures.length) { setError(`Ressource konnte nicht gespeichert werden; bitte ${cleanupFailures.join(' und ')} prüfen.`); return; }
       setError(reason instanceof Error ? reason.message : 'Fehler');
     }
   };
@@ -910,7 +923,8 @@ function ResourceEditor({ resource, categories, credentials, onCancel, onSaved }
           ? <div className="security-info">Benutzername und Secret werden aus dem globalen Credential übernommen und nicht in diese Ressource kopiert.</div>
           : <label>{resource?.hasLocalSecret ? 'Ressourceneigenes Secret ersetzen (optional)' : 'Secret (optional gespeichert)'}<input type="password" value={secret} onChange={event => setSecret(event.target.value)} /></label>}
     </>}
-    <label>Gruppe<select value={categoryId} onChange={event => setCategory(event.target.value)}><option value="">Ohne</option>{categories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
+    <label>Gruppe<select value={creatingCategory ? '__new__' : categoryId} onChange={event => { if (event.target.value === '__new__') { setCreatingCategory(true); } else { setCreatingCategory(false); setNewCategoryName(''); setCategory(event.target.value); } }}><option value="">Ohne</option><option value="__new__">＋ Neu anlegen …</option>{categories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
+    {creatingCategory && <div className="inline-credential-fields"><label>Neue Gruppe<input required maxLength={80} value={newCategoryName} onChange={event => setNewCategoryName(event.target.value)} placeholder="z. B. Smart Home" /></label><div className="security-info">Die Gruppe wird beim Speichern angelegt und dieser Ressource direkt zugewiesen.</div></div>}
     {error && <div role="alert" className="error">{error}</div>}
     <div className="actions"><button type="button" onClick={onCancel}>Abbrechen</button><button className="primary">Speichern</button></div>
   </form></div>;

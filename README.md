@@ -9,6 +9,7 @@ HomeOps Hub bündelt Weboberflächen, SSH-Terminals und RDP-Desktops in einer ge
 - Erreichbarkeitsübersicht mit ausgefallenen Ressourcen und Diagnose
 - Persönlicher Credential-Tresor für Web (HTTP Basic), SSH und RDP
 - Direkte Anlage neuer Credentials im jeweiligen Ressourcendialog
+- Direkte Anlage und Zuweisung neuer Gruppen im Ressourcendialog
 - Verschlüsselte Speicherung von Secrets mit AES-256-GCM
 - Mehrbenutzerbetrieb mit ressourcenbezogenen Freigaben
 - Progressive Web App und responsive Oberfläche

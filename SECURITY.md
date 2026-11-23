@@ -2,11 +2,13 @@
 
 ## Betriebsmodell
 
-HomeOps ist standardmäßig nur für LAN/VPN und einen vorgeschalteten HTTPS-Reverse-Proxy vorgesehen. Compose bindet den Webport ausschließlich an `127.0.0.1`; PostgreSQL und guacd werden gar nicht am Host veröffentlicht. `APP_ORIGIN` muss exakt der öffentlichen HTTPS-Origin entsprechen.
+HomeOps ist ausschließlich für LAN/VPN vorgesehen. Der direkte HTTP-Betrieb bindet den Webport gezielt an die LAN-IP des Dockerhosts; ein HTTPS-Reverse-Proxy ist eine optionale, sicherere Betriebsart. PostgreSQL und guacd werden nicht am Host veröffentlicht. `APP_ORIGIN` muss in beiden Modi exakt der im Browser verwendeten Origin entsprechen. Der Port darf niemals ungeschützt aus dem Internet erreichbar sein.
 
 ## Identität und Sitzungen
 
-Passwörter werden mit Argon2id gehasht. Das initiale Adminpasswort kommt nur aus der Umgebung und muss nach dem ersten Start entfernt werden. Angemeldete Benutzer können ihr eigenes Kennwort nur unter Angabe des aktuellen Kennworts ändern; danach werden alle anderen Sitzungen dieses Kontos widerrufen. Die zufällige Session-ID liegt als `HttpOnly`, `Secure`- und `SameSite=Strict`-Cookie im Browser und nur gehasht in PostgreSQL. `COOKIE_SECURE=false` ist ausschließlich für lokale HTTP-Acceptance-Tests zulässig; Produktion behält den Default `true`. Zustandsänderungen erfordern zusätzlich das sitzungsgebundene CSRF-Token und eine passende Origin. Login und Kennwortänderung sind rate-limitiert.
+Passwörter werden mit Argon2id gehasht. Das initiale Adminpasswort kommt nur aus der Umgebung und muss nach dem ersten Start entfernt werden. Angemeldete Benutzer können ihr eigenes Kennwort nur unter Angabe des aktuellen Kennworts ändern; danach werden alle anderen Sitzungen dieses Kontos widerrufen. Die zufällige Session-ID liegt als `HttpOnly`- und `SameSite=Strict`-Cookie im Browser und nur gehasht in PostgreSQL. Im HTTPS-Modus ist das Cookie zusätzlich `Secure`; direkter HTTP-Betrieb erfordert `COOKIE_SECURE=false`. Zustandsänderungen erfordern zusätzlich das sitzungsgebundene CSRF-Token und eine passende Origin. Login und Kennwortänderung sind rate-limitiert.
+
+Direktes HTTP verschlüsselt den Weg zwischen Browser und HomeOps nicht. Login, manuell eingegebene Zielpasswörter und angezeigte Sitzungsinhalte können daher von Teilnehmern mit Zugriff auf den LAN-Verkehr mitgelesen werden. Die Verschlüsselung gespeicherter Secrets in PostgreSQL bleibt davon unberührt. Dieser Modus ist nur für ein vollständig vertrauenswürdiges, nicht öffentlich erreichbares LAN gedacht.
 
 ## Secrets
 
@@ -27,6 +29,8 @@ Konfigurationsexporte werden ausschließlich im Browser mit PBKDF2-SHA-256 (250.
 ## Webinhalte
 
 Direkt eingebettete Webressourcen behalten ihre X-Frame-Options-/CSP-Header und bleiben eigene Sicherheitsdomänen; der HomeOps-Login ist kein SSO.
+
+HomeOps sendet absichtlich keine CSP-Anweisung zur automatischen HTTPS-Hochstufung. Dadurch bleiben HTTP-Ziele im direkten HTTP-LAN-Modus erreichbar. Läuft HomeOps selbst über HTTPS, blockieren Browser eingebettete HTTP-Ziele dennoch als Mixed Content; diese Ziele müssen dann extern geöffnet oder selbst per HTTPS bereitgestellt werden.
 
 Die optionale HTTP-Basic-Funktion ist ein eng begrenzter Sonderfall für LAN-Geräte. Sie akzeptiert nur Ziele, deren DNS-Ergebnisse vollständig in privaten IPv4- oder lokalen IPv6-Netzen liegen, fixiert die geprüfte Zieladresse für die ausgehende Verbindung und folgt keinen Cross-Origin-Redirects. Das globale Passwort-Credential wird ausschließlich im Backend entschlüsselt und als `Authorization`-Header an den exakt konfigurierten Origin gesendet. Ziel-Cookies werden nicht an HomeOps übernommen. Die Antwort läuft in einem Sandbox-iframe ohne `allow-same-origin`; externes Öffnen ist für diesen Modus deaktiviert. Dadurch dürfen komplexe Anwendungen mit WebSockets, Cross-Origin-XHR oder sitzungsabhängigen Cookies eingeschränkt sein.
 

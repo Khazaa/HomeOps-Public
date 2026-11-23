@@ -1,6 +1,8 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import Guacamole from 'guacamole-common-js';
 import { api } from './api';
+import { sendClipboardText } from './remoteClipboard';
+import { RemoteKeyboardController } from './remoteKeyboard';
 import type { Resource } from './types';
 
 type State = 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -64,8 +66,9 @@ export const RemoteTab = memo(function RemoteTab({ resource, active }: { resourc
       const mouse = new Guacamole.Mouse(displayElement);
       mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = (mouseState: any) => guac.sendMouseState(mouseState);
       keyboard.current = new Guacamole.Keyboard(host.current);
-      keyboard.current.onkeydown = (key: number) => guac.sendKeyEvent(1, key);
-      keyboard.current.onkeyup = (key: number) => guac.sendKeyEvent(0, key);
+      const keyboardController = new RemoteKeyboardController(guac);
+      keyboard.current.onkeydown = (key: number) => keyboardController.keyDown(key);
+      keyboard.current.onkeyup = (key: number) => keyboardController.keyUp(key);
       guac.connect(`token=${encodeURIComponent(ticket.token)}`);
       setSecret('');
     } catch (reason) {
@@ -96,12 +99,24 @@ export const RemoteTab = memo(function RemoteTab({ resource, active }: { resourc
     if (active) requestAnimationFrame(fitDisplay);
     return () => observer.disconnect();
   }, [active, resource.type]);
+  useEffect(() => {
+    if (!active || resource.type !== 'ssh' || state !== 'connected') return;
+    const paste = (event: ClipboardEvent) => {
+      if (!remote.current?.contains(event.target as Node)) return;
+      const text = event.clipboardData?.getData('text/plain') ?? '';
+      if (!sendClipboardText(client.current, text)) return;
+      event.preventDefault();
+      host.current?.focus();
+    };
+    document.addEventListener('paste', paste, true);
+    return () => document.removeEventListener('paste', paste, true);
+  }, [active, resource.type, state]);
 
   return <div ref={remote} className="remote">
     <form className="viewer-toolbar" onSubmit={event => { event.preventDefault(); if (state !== 'connected') void connect(); }}>
       <span className={`status ${state}`}>{state === 'connected' ? 'Verbunden' : state === 'connecting' ? 'Verbinden …' : state === 'error' ? 'Fehler' : 'Getrennt'}</span>
       {state !== 'connected' && <><input aria-label="Passwort oder Private Key" type="password" value={secret} onChange={event => setSecret(event.target.value)} placeholder={resource.hasSecret ? 'Gespeichertes Secret verwenden' : 'Passwort / Private Key'} /><button type="submit" disabled={state === 'connecting'}>{state === 'error' ? 'Erneut verbinden' : 'Verbinden'}</button></>}
-      {state === 'connected' && <><button type="button" onClick={() => void (fullscreen ? document.exitFullscreen() : remote.current?.requestFullscreen())}>{fullscreen ? 'Vollbild beenden' : 'Vollbild'}</button><button type="button" onClick={disconnect}>Trennen</button></>}
+      {state === 'connected' && <><span className="viewer-hint">Einfügen: Strg+V / Strg+Shift+V</span><button type="button" onClick={() => void (fullscreen ? document.exitFullscreen() : remote.current?.requestFullscreen())}>{fullscreen ? 'Vollbild beenden' : 'Vollbild'}</button><button type="button" onClick={disconnect}>Trennen</button></>}
     </form>
     {error && <div role="alert" className="error">{error}</div>}
     <div ref={host} className="remote-display" tabIndex={0} onPointerDown={event => event.currentTarget.focus()} />

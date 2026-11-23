@@ -17,8 +17,9 @@ HomeOps Hub bündelt Weboberflächen, SSH-Terminals und RDP-Desktops in einer ge
 ## Voraussetzungen
 
 - Docker Engine mit Compose v2
-- HTTPS-Reverse-Proxy
 - Netzwerkzugriff der Docker-Container auf die gewünschten Zielsysteme
+
+Ein Reverse Proxy ist nicht erforderlich. Für ein vollständig vertrauenswürdiges LAN kann HomeOps direkt per HTTP auf der LAN-IP des Dockerhosts laufen. HTTPS über einen Reverse Proxy bleibt optional.
 
 ## Installation mit Docker Compose
 
@@ -33,8 +34,8 @@ cp .env.example .env
 
 Anschließend `.env` bearbeiten:
 
-- `APP_ORIGIN`: exakte öffentliche HTTPS-Adresse, beispielsweise `https://homeops.example.lan`
-- `HOMEOPS_BIND_ADDRESS`: `127.0.0.1`, wenn der Reverse Proxy lokal läuft; andernfalls die LAN-IP des Dockerhosts
+- `APP_ORIGIN`: exakte Browseradresse, beispielsweise `http://192.168.1.10:3000`
+- `HOMEOPS_BIND_ADDRESS`: LAN-IP des Dockerhosts, im Beispiel `192.168.1.10`
 - `POSTGRES_PASSWORD`: langes, zufälliges Datenbankkennwort
 - `MASTER_KEY`: exakt 32 Zufallsbytes als Base64url ohne Padding (43 Zeichen)
 - `GUAC_TOKEN_KEY`: mindestens 32 zufällige Zeichen, unabhängig vom Master-Key
@@ -68,10 +69,14 @@ Danach starten:
 docker compose pull
 docker compose up -d
 docker compose ps
-curl http://127.0.0.1:3000/health
+curl http://192.168.1.10:3000/health
 ```
 
-Der HTTPS-Reverse-Proxy muss auf `${HOMEOPS_BIND_ADDRESS}:3000` zeigen und WebSocket-Upgrades für `/api/v1/tunnel` erlauben. Läuft er auf einem anderen Host, sollte eine Firewall Port 3000 ausschließlich für dessen IP freigeben. `APP_ORIGIN` bleibt die externe HTTPS-Adresse und darf keinen abschließenden Schrägstrich enthalten. Nach der ersten erfolgreichen Anmeldung `ADMIN_INITIAL_PASSWORD=` in `.env` setzen und den Web-Container neu erstellen:
+HomeOps anschließend exakt über die in `APP_ORIGIN` eingetragene Adresse öffnen. Im direkten LAN-Modus gelten `TRUST_PROXY=false` und `COOKIE_SECURE=false`. Es muss weder für HomeOps noch für jedes Zielgerät ein nginx-Eintrag angelegt werden. Die Firewall sollte Port 3000 nur für das eigene LAN oder VPN freigeben.
+
+Optional kann HomeOps weiterhin hinter einem HTTPS-Reverse-Proxy betrieben werden. Dann `APP_ORIGIN` auf dessen HTTPS-Adresse, `HOMEOPS_BIND_ADDRESS=127.0.0.1`, `TRUST_PROXY=true` und `COOKIE_SECURE=true` setzen. Der Proxy muss WebSocket-Upgrades für `/api/v1/tunnel` erlauben.
+
+Nach der ersten erfolgreichen Anmeldung `ADMIN_INITIAL_PASSWORD=` in `.env` setzen und den Web-Container neu erstellen:
 
 ```sh
 docker compose up -d --force-recreate web
@@ -83,7 +88,7 @@ Jede Installation benötigt eigene Secrets und ein eigenes Admin-Kennwort. `.env
 
 1. Repository klonen und `.env.example` nach `.env` kopieren.
 2. Alle `CHANGE_ME`-Werte durch unabhängige Zufallswerte ersetzen.
-3. `APP_ORIGIN` auf die exakte externe HTTPS-Adresse setzen.
+3. `APP_ORIGIN` und `HOMEOPS_BIND_ADDRESS` auf die LAN-Adresse des Dockerhosts setzen.
 4. `docker compose up -d --build` ausführen.
 5. Mit dem einmaligen Admin-Kennwort anmelden.
 6. `ADMIN_INITIAL_PASSWORD` aus `.env` entfernen und den Web-Container neu erstellen:
@@ -92,7 +97,7 @@ Jede Installation benötigt eigene Secrets und ein eigenes Admin-Kennwort. `.env
    docker compose up -d --force-recreate web
    ```
 
-Es gibt kein Standard-Adminpasswort. `ADMIN_INITIAL_PASSWORD` wird ausschließlich bei einer leeren Datenbank für das erste Konto verwendet. Der Webport lauscht standardmäßig nur auf `127.0.0.1:3000`; PostgreSQL und guacd besitzen keinen Hostport.
+Es gibt kein Standard-Adminpasswort. `ADMIN_INITIAL_PASSWORD` wird ausschließlich bei einer leeren Datenbank für das erste Konto verwendet. PostgreSQL und guacd besitzen keinen Hostport.
 
 Ein Deployment ohne lokalen Build ist im Verzeichnis [`deploy/`](deploy/README.md) beschrieben.
 
@@ -100,13 +105,15 @@ Ein Deployment ohne lokalen Build ist im Verzeichnis [`deploy/`](deploy/README.m
 
 ### Web
 
-Webseiten können eingebettet, automatisch eingebettet oder extern geöffnet werden. HomeOps umgeht keine `X-Frame-Options`- oder CSP-Vorgaben der Zielseite.
+Webseiten können eingebettet, automatisch eingebettet oder extern geöffnet werden. Im direkten HTTP-LAN-Modus bleiben konfigurierte HTTP-Ziele HTTP; HomeOps stuft sie nicht auf HTTPS hoch. Auch HTTPS-Ziele können eingebettet werden, sofern ihr Zertifikat im Browser akzeptiert wird. HomeOps umgeht keine `X-Frame-Options`- oder CSP-Vorgaben der Zielseite.
 
 Für HTTP-Basic-Ziele im LAN steht ein isolierter Backend-Proxy zur Verfügung. Zugangsdaten bleiben im Backend und erscheinen weder in der URL noch im Browser. Komplexe Anwendungen mit WebSockets, Cross-Origin-XHR oder sitzungsabhängigen Cookies können in diesem Modus eingeschränkt sein.
 
 ### SSH
 
 SSH unterstützt Passwort und Private Key. Die Host-Key-Prüfung ist standardmäßig aktiv und erwartet einen Eintrag im OpenSSH-`known_hosts`-Format. Ein geänderter Schlüssel wird abgelehnt.
+
+Text aus der lokalen Zwischenablage kann im verbundenen SSH-Tab mit `Strg+V` oder `Strg+Shift+V` eingefügt werden.
 
 ### RDP
 
@@ -116,7 +123,9 @@ Bei allen drei Ressourcentypen kann ein vorhandenes Credential gewählt oder dir
 
 ## Sicherheit
 
-HomeOps ist für LAN/VPN und einen vorgeschalteten HTTPS-Reverse-Proxy ausgelegt. Wichtige Betriebsgrenzen und das Bedrohungsmodell stehen in [SECURITY.md](SECURITY.md). Insbesondere gehören `.env`, `MASTER_KEY`, Datenbankdumps und Zugangsdaten niemals in Git.
+HomeOps ist für LAN/VPN ausgelegt und unterstützt direkten HTTP-Betrieb oder optional einen HTTPS-Reverse-Proxy. Bei HTTP sind Anmeldung und eingegebene Zugangsdaten auf dem Transportweg im LAN unverschlüsselt. Wichtige Betriebsgrenzen stehen in [SECURITY.md](SECURITY.md). Insbesondere gehören `.env`, `MASTER_KEY`, Datenbankdumps und Zugangsdaten niemals in Git.
+
+Die normale Browseroberfläche funktioniert per HTTP. PWA-Installation und Service Worker erfordern außerhalb von `localhost` dagegen HTTPS.
 
 ## Entwicklung
 

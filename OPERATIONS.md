@@ -19,6 +19,6 @@ Beim imagebasierten Deployment aus `deploy/` wird stattdessen ein freigegebener 
 
 Ein Git-Tag `v*` löst in GitHub Actions den Multi-Arch-Build nach GHCR aus. Das Container-Paket muss in GitHub separat auf die gewünschte Sichtbarkeit gesetzt werden. Alternativ kann ein versionsgebundenes Image derselben CPU-Architektur per `docker save` exportiert und zusammen mit SHA-256-Prüfsumme sowie dem `deploy/`-Verzeichnis übertragen werden. Installationssecrets werden immer erst auf dem jeweiligen Zielsystem erzeugt.
 
-## Reverse Proxy
+## Optionaler Reverse Proxy
 
-TLS terminieren, WebSocket-Upgrades für `/api/v1/tunnel` erlauben, Querystrings dort nicht in Access-Logs schreiben und Request-/Response-Buffering deaktivieren. `X-Forwarded-Proto`/`Host` korrekt setzen. Weder Port 4822 noch 5432 veröffentlichen.
+Für direkten LAN-Betrieb ist kein Reverse Proxy notwendig. Optional TLS terminieren, WebSocket-Upgrades für `/api/v1/tunnel` erlauben, Querystrings dort nicht in Access-Logs schreiben und Request-/Response-Buffering deaktivieren. `X-Forwarded-Proto`/`Host` korrekt setzen. Weder Port 4822 noch 5432 veröffentlichen.

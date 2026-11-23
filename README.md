@@ -114,7 +114,7 @@ Für HTTP-Basic-Ziele im LAN steht ein isolierter Backend-Proxy zur Verfügung. 
 
 SSH unterstützt Passwort und Private Key. Die Host-Key-Prüfung ist standardmäßig aktiv und erwartet einen Eintrag im OpenSSH-`known_hosts`-Format. Ein geänderter Schlüssel wird abgelehnt.
 
-Text aus der lokalen Zwischenablage kann im verbundenen SSH-Tab mit `Strg+V` oder `Strg+Shift+V` eingefügt werden. SSH und RDP passen ihre Remote-Anzeige an Größenänderungen des Tabs an. Die Bedienung ist für aktuelle Versionen von Firefox, Chrome und Edge ausgelegt.
+Text aus der lokalen Zwischenablage kann in verbundenen SSH- und RDP-Tabs mit `Strg+V` oder `Strg+Shift+V` eingefügt werden. SSH und RDP passen ihre Remote-Anzeige an Größenänderungen des Tabs an. Die Bedienung ist für aktuelle Versionen von Firefox, Chrome und Edge ausgelegt.
 
 ### RDP
 

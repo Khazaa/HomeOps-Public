@@ -22,4 +22,13 @@ describe('remote clipboard', () => {
   it('ignores empty clipboard content', () => {
     expect(sendClipboardText({}, '')).toBe(false);
   });
+
+  it('pastes synchronized text into an RDP application', () => {
+    vi.useFakeTimers();
+    const client = { createClipboardStream: vi.fn(() => ({})), sendKeyEvent: vi.fn() };
+    sendClipboardText(client, 'RDP clipboard', true);
+    vi.advanceTimersByTime(50);
+    expect(client.sendKeyEvent.mock.calls).toEqual([[1, 0xffe3], [1, 0x76], [0, 0x76], [0, 0xffe3]]);
+    vi.useRealTimers();
+  });
 });

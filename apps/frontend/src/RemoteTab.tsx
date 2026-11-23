@@ -68,7 +68,7 @@ export const RemoteTab = memo(function RemoteTab({ resource, active }: { resourc
       const mouse = new Guacamole.Mouse(displayElement);
       mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = (mouseState: any) => guac.sendMouseState(mouseState);
       keyboard.current = new Guacamole.Keyboard(host.current);
-      const keyboardController = new RemoteKeyboardController(guac, resource.type === 'ssh' ? () => clipboardCapture.current?.focus() : undefined);
+      const keyboardController = new RemoteKeyboardController(guac, () => clipboardCapture.current?.focus());
       keyboard.current.onkeydown = (key: number) => keyboardController.keyDown(key);
       keyboard.current.onkeyup = (key: number) => keyboardController.keyUp(key);
       guac.connect(`token=${encodeURIComponent(ticket.token)}`);
@@ -102,11 +102,11 @@ export const RemoteTab = memo(function RemoteTab({ resource, active }: { resourc
     return () => observer.disconnect();
   }, [active, resource.type]);
   useEffect(() => {
-    if (!active || resource.type !== 'ssh' || state !== 'connected') return;
+    if (!active || state !== 'connected') return;
     const paste = (event: ClipboardEvent) => {
       if (!remote.current?.contains(event.target as Node)) return;
       const text = event.clipboardData?.getData('text/plain') ?? '';
-      if (!sendClipboardText(client.current, text)) return;
+      if (!sendClipboardText(client.current, text, resource.type === 'rdp')) return;
       event.preventDefault();
       host.current?.focus();
     };
@@ -122,6 +122,6 @@ export const RemoteTab = memo(function RemoteTab({ resource, active }: { resourc
     </form>
     {error && <div role="alert" className="error">{error}</div>}
     <div ref={host} className="remote-display" tabIndex={0} onPointerDown={event => event.currentTarget.focus()} />
-    {resource.type === 'ssh' && <textarea ref={clipboardCapture} className="remote-clipboard-capture" aria-label="SSH-Zwischenablage" tabIndex={-1} />}
+    <textarea ref={clipboardCapture} className="remote-clipboard-capture" aria-label="Remote-Zwischenablage" tabIndex={-1} />
   </div>;
 });

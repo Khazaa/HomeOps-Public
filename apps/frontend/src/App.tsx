@@ -382,6 +382,16 @@ export function App() {
     if (next.has(key)) next.delete(key); else next.add(key);
     return next;
   });
+  const logout = async () => {
+    setAccountMenuOpen(false);
+    try {
+      await api.logout();
+      setTabs([]);
+      setUser(null);
+    } catch (reason) {
+      setNotice(`Logout fehlgeschlagen: ${reason instanceof Error ? reason.message : 'Unbekannter Fehler'}`);
+    }
+  };
 
   if (loading) return <div className="center">HomeOps Hub wird geladen …</div>;
   if (!user) return <Login onSuccess={async () => { const me = await api.me(); setUser(me.user); const [, stored] = await Promise.all([refresh(), api.preferences()]); setPreferences(stored.data); }} />;
@@ -495,7 +505,7 @@ export function App() {
             <button role="menuitem" onClick={() => { setAccountMenuOpen(false); setBackupOpen(true); }}>Backup &amp; Restore</button>
             <button role="menuitem" onClick={async () => { setAccountMenuOpen(false); if (installPrompt) { await installPrompt.prompt(); const choice = await installPrompt.userChoice; if (choice.outcome === 'accepted') setInstallPrompt(null); } else setNotice('Im Browser-Menü „App installieren“ bzw. „Zum Startbildschirm“ wählen.'); }}>App installieren</button>
             <button role="menuitem" onClick={() => { setAccountMenuOpen(false); setChangingPassword(true); }}>Kennwort ändern</button>
-            <button role="menuitem" onClick={async () => { setAccountMenuOpen(false); await api.logout(); setUser(null); }}>Logout</button>
+            <button role="menuitem" onClick={() => void logout()}>Logout</button>
           </div>}
         </div>
       </div>

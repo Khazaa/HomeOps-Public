@@ -34,6 +34,7 @@ cp .env.example .env
 Anschließend `.env` bearbeiten:
 
 - `APP_ORIGIN`: exakte öffentliche HTTPS-Adresse, beispielsweise `https://homeops.example.lan`
+- `HOMEOPS_BIND_ADDRESS`: `127.0.0.1`, wenn der Reverse Proxy lokal läuft; andernfalls die LAN-IP des Dockerhosts
 - `POSTGRES_PASSWORD`: langes, zufälliges Datenbankkennwort
 - `MASTER_KEY`: exakt 32 Zufallsbytes als Base64url ohne Padding (43 Zeichen)
 - `GUAC_TOKEN_KEY`: mindestens 32 zufällige Zeichen, unabhängig vom Master-Key
@@ -70,7 +71,7 @@ docker compose ps
 curl http://127.0.0.1:3000/health
 ```
 
-Der HTTPS-Reverse-Proxy muss auf `127.0.0.1:3000` zeigen und WebSocket-Upgrades für `/api/v1/tunnel` erlauben. Nach der ersten erfolgreichen Anmeldung `ADMIN_INITIAL_PASSWORD=` in `.env` setzen und den Web-Container neu erstellen:
+Der HTTPS-Reverse-Proxy muss auf `${HOMEOPS_BIND_ADDRESS}:3000` zeigen und WebSocket-Upgrades für `/api/v1/tunnel` erlauben. Läuft er auf einem anderen Host, sollte eine Firewall Port 3000 ausschließlich für dessen IP freigeben. `APP_ORIGIN` bleibt die externe HTTPS-Adresse und darf keinen abschließenden Schrägstrich enthalten. Nach der ersten erfolgreichen Anmeldung `ADMIN_INITIAL_PASSWORD=` in `.env` setzen und den Web-Container neu erstellen:
 
 ```sh
 docker compose up -d --force-recreate web

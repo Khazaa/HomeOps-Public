@@ -10,12 +10,12 @@ Veröffentlichte Versionen verwenden `ghcr.io/khazaa/homeops-public:<version>`, 
 2. `chmod +x bootstrap.sh && ./bootstrap.sh` ausführen. Das Skript verwendet automatisch das öffentliche Image `v0.1.0`, fragt nur die externe HTTPS-URL und ein individuelles initiales Admin-Kennwort ab und erzeugt alle weiteren Secrets selbst. Alternativ `.env.example` nach `.env` kopieren und alle `CHANGE_ME`-Werte ersetzen.
 3. `docker compose pull && docker compose up -d` ausführen.
 4. `docker compose ps` und `curl http://127.0.0.1:3000/health` prüfen.
-5. Den HTTPS-Reverse-Proxy auf `127.0.0.1:3000` zeigen lassen und WebSocket-Upgrades für `/api/v1/tunnel` erlauben.
+5. Den HTTPS-Reverse-Proxy auf `${HOMEOPS_BIND_ADDRESS}:3000` zeigen lassen und WebSocket-Upgrades für `/api/v1/tunnel` erlauben. Läuft der Proxy auf einem anderen Host, in `.env` die LAN-IP des Dockerhosts als `HOMEOPS_BIND_ADDRESS` setzen und Port 3000 per Firewall ausschließlich für den Proxy freigeben.
 6. Erfolgreich anmelden, danach `ADMIN_INITIAL_PASSWORD=` in `.env` setzen und `docker compose up -d --force-recreate web` ausführen.
 
 Jede Installation erzeugt eine eigene Datenbank und eigene Secrets. `.env`, Datenbankdumps und `MASTER_KEY` dürfen nicht zwischen unabhängigen Installationen geteilt oder eingecheckt werden.
 
-Der veröffentlichte Port bindet ausschließlich an Loopback. PostgreSQL und guacd besitzen keinen Hostport.
+Der veröffentlichte Port bindet standardmäßig ausschließlich an Loopback. Für einen externen Reverse Proxy kann gezielt die LAN-IP des Dockerhosts verwendet werden. PostgreSQL und guacd besitzen keinen Hostport.
 
 ## Update
 

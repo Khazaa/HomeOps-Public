@@ -1,0 +1,2 @@
+import{describe,expect,it}from'vitest';import{decryptSecret,encryptSecret,isSafeHost}from'./security.js';
+describe('secret storage',()=>{it('roundtrips AEAD without plaintext',()=>{const key=Buffer.alloc(32,7).toString('base64url');const encrypted=encryptSecret('top-secret',key);expect(encrypted).not.toContain('top-secret');expect(decryptSecret(encrypted,key)).toBe('top-secret')});it('rejects unsafe arbitrary host values',()=>{expect(isSafeHost('server.example.lan')).toBe(true);expect(isSafeHost('localhost')).toBe(false);expect(isSafeHost('host/../../etc')).toBe(false)})});

@@ -1,0 +1,67 @@
+name: homeops-hub
+
+services:
+  web:
+    image: ${HOMEOPS_IMAGE:?HOMEOPS_IMAGE in .env setzen}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      guacd:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://homeops:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD setzen}@postgres:5432/homeops
+      APP_ORIGIN: ${APP_ORIGIN:?APP_ORIGIN setzen}
+      MASTER_KEY: ${MASTER_KEY:?MASTER_KEY setzen}
+      GUAC_TOKEN_KEY: ${GUAC_TOKEN_KEY:?GUAC_TOKEN_KEY setzen}
+      GUACD_HOST: guacd
+      GUACD_PORT: 4822
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:-}
+      TRUST_PROXY: ${TRUST_PROXY:-true}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+    ports:
+      - 127.0.0.1:${HOMEOPS_PORT:-3000}:3000
+    networks: [frontend, backend]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: homeops
+      POSTGRES_USER: homeops
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD setzen}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U homeops -d homeops"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  guacd:
+    image: guacamole/guacd:1.6.0
+    restart: unless-stopped
+    networks: [backend, target_egress]
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 4822"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:
+
+networks:
+  frontend:
+  target_egress:
+  backend:
+    internal: true

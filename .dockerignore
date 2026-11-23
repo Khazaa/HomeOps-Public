@@ -1,0 +1,13 @@
+.git
+.gitignore
+.env
+**/.env
+**/node_modules
+**/dist
+**/coverage
+**/*.log
+**/*.tsbuildinfo
+test-results
+playwright-report
+**/*.dump
+**/*.tar.gz

@@ -1,0 +1,16 @@
+node_modules/
+dist/
+coverage/
+playwright-report/
+test-results/
+.env
+**/.env
+*.local
+data/
+*.log
+*.dump
+*.tar.gz
+*.tsbuildinfo
+.DS_Store
+Thumbs.db
+infra/certs/

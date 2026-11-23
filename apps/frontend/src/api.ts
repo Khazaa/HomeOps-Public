@@ -1,4 +1,4 @@
-import type { AuditEvent,Category,Credential,Resource } from './types';
+import type { AuditEvent,Category,Credential,NetworkScanResult,Resource } from './types';
 const csrf=()=>decodeURIComponent(document.cookie.split('; ').find(v=>v.startsWith('homeops_csrf='))?.split('=')[1]??'');
 async function request<T>(url:string,init:RequestInit={}):Promise<T>{const headers=new Headers(init.headers);if(init.body)headers.set('content-type','application/json');if(init.method&&!['GET','HEAD'].includes(init.method))headers.set('x-csrf-token',csrf());const response=await fetch(url,{...init,headers,credentials:'include'});if(!response.ok){const detail=await response.json().catch(()=>({}));throw new Error(detail.message??detail.error??`HTTP ${response.status}`)}return response.json()}
 export const api={
@@ -7,6 +7,7 @@ export const api={
   logout:()=>request('/api/v1/auth/logout',{method:'POST'}),
   changePassword:(currentPassword:string,newPassword:string)=>request('/api/v1/auth/change-password',{method:'POST',body:JSON.stringify({currentPassword,newPassword})}),
   audit:()=>request<{events:AuditEvent[]}>('/api/v1/audit'),
+  scanNetwork:(body:{cidr:string;web:boolean;ssh:boolean;rdp:boolean;ports:number[]})=>request<{results:NetworkScanResult[]}>('/api/v1/network/scan',{method:'POST',body:JSON.stringify(body)}),
   credentials:()=>request<Credential[]>('/api/v1/credentials'),
   createCredential:(body:{name:string;username:string;kind:Credential['kind'];secret:string;expiresAt:string|null})=>request<Credential>('/api/v1/credentials',{method:'POST',body:JSON.stringify(body)}),
   updateCredential:(id:string,body:{name:string;username:string;kind:Credential['kind'];secret?:string;expiresAt:string|null})=>request<Credential>(`/api/v1/credentials/${id}`,{method:'PATCH',body:JSON.stringify(body)}),

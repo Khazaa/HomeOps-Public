@@ -3,7 +3,7 @@ import { api } from './api';
 import { BrandMark, Icon } from './Icons';
 import { randomId } from './randomId';
 import { RemoteTab } from './RemoteTab';
-import type { AuditEvent, Category, Credential, Resource, ResourceType, Tab } from './types';
+import type { AuditEvent, Category, Credential, NetworkScanResult, Resource, ResourceType, Tab } from './types';
 import { WebTab } from './WebTab';
 
 const INBOX_WORKSPACE_ID = 'inbox';
@@ -68,6 +68,7 @@ export function App() {
   const [backupOpen, setBackupOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const preferenceSaveQueue = useRef<Promise<void>>(Promise.resolve());
 
@@ -524,6 +525,7 @@ export function App() {
         {resourceGroup('uncategorized', 'Ohne Kategorie')}
       </div>
       <div className="sidebar-footer">
+        <button className="text-icon-button" onClick={() => setScannerOpen(true)}><Icon name="test" /> Netzwerk scannen</button>
         <button className="text-icon-button group-button" onClick={async () => { const name = prompt('Name der neuen Gruppe'); if (name) { await api.createCategory(name); await refresh(); } }}><Icon name="plus" /> Gruppe</button>
       </div>
     </aside>
@@ -566,6 +568,7 @@ export function App() {
     </div>}
     {resourceContextMenu && <div className="resource-context-menu" role="menu" aria-label={`Aktionen für ${resourceContextMenu.resource.name}`} style={{ left: resourceContextMenu.x, top: resourceContextMenu.y }}>{resourceActions(resourceContextMenu.resource)}</div>}
     {editor && <ResourceEditor key={editor === 'new' ? 'new' : editor.id} resource={editor === 'new' ? undefined : editor} categories={categories} credentials={credentials} onCancel={() => setEditor(null)} onSaved={async () => { setEditor(null); await refresh(); }} />}
+    {scannerOpen && <NetworkScanner resources={resources} onClose={() => setScannerOpen(false)} onSaved={refresh} />}
     {managingCredentials && <CredentialManager credentials={credentials} resources={resources} onCancel={() => setManagingCredentials(false)} onChanged={refresh} />}
     {changingPassword && <ChangePassword onCancel={() => setChangingPassword(false)} onSaved={() => { setChangingPassword(false); setNotice('Kennwort geändert. Andere Sitzungen wurden abgemeldet.'); }} />}
     {auditEvents && <AuditHistory events={auditEvents} onClose={() => setAuditEvents(null)} />}
@@ -738,7 +741,7 @@ function ChangePassword({ onCancel, onSaved }: { onCancel: () => void; onSaved: 
 }
 
 function Login({ onSuccess }: { onSuccess: () => void }) {
-  const [username, setUsername] = useState('admin');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   return <main className="login"><form onSubmit={async event => {
@@ -747,11 +750,25 @@ function Login({ onSuccess }: { onSuccess: () => void }) {
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Anmeldung fehlgeschlagen'); }
   }}>
     <h1 className="login-brand"><BrandMark size={42} /> HomeOps Hub</h1>
-    <label>Benutzername<input autoComplete="username" value={username} onChange={event => setUsername(event.target.value)} /></label>
+    <label>Benutzername<input autoFocus required autoComplete="username" value={username} onChange={event => setUsername(event.target.value)} /></label>
     <label>Passwort<input type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} /></label>
     {error && <div className="error">{error}</div>}
     <button className="primary">Anmelden</button>
   </form></main>;
+}
+
+const scanKey = (result: NetworkScanResult) => `${result.ip}:${result.port}`;
+function duplicateResource(resources: Resource[], result: NetworkScanResult, type: ResourceType) {
+  const hosts=new Set([result.ip,result.hostname].filter(Boolean).map(value=>String(value).toLowerCase().replace(/\.$/,'')));
+  return resources.find(resource=>{if(resource.type!==type)return false;if(type==='web'){try{const url=new URL(String(resource.config.url));const port=Number(url.port||(url.protocol==='https:'?443:80));return hosts.has(url.hostname.toLowerCase())&&port===result.port}catch{return false}}return hosts.has(String(resource.config.host??'').toLowerCase())&&Number(resource.config.port)===result.port;});
+}
+function NetworkScanner({resources,onClose,onSaved}:{resources:Resource[];onClose:()=>void;onSaved:()=>Promise<void>}) {
+  const[cidr,setCidr]=useState('192.168.1.0/24');const[web,setWeb]=useState(true);const[ssh,setSsh]=useState(true);const[rdp,setRdp]=useState(true);const[customPorts,setCustomPorts]=useState('');const[results,setResults]=useState<NetworkScanResult[]>([]);const[types,setTypes]=useState<Record<string,ResourceType>>({});const[usernames,setUsernames]=useState<Record<string,string>>({});const[selected,setSelected]=useState<Set<string>>(new Set());const[busy,setBusy]=useState(false);const[error,setError]=useState('');
+  const scan=async()=>{setBusy(true);setError('');setResults([]);try{const ports=[...new Set(customPorts.split(/[\s,;]+/).filter(Boolean).map(Number))];if(ports.some(port=>!Number.isInteger(port)||port<1||port>65535)||ports.length>16)throw new Error('Maximal 16 gültige Ports zwischen 1 und 65535 angeben.');const response=await api.scanNetwork({cidr:cidr.trim(),web,ssh,rdp,ports});setResults(response.results);setTypes(Object.fromEntries(response.results.map(result=>[scanKey(result),result.suggestedType])));setSelected(new Set(response.results.map(scanKey)))}catch(reason){const message=reason instanceof Error?reason.message:'SCAN_FAILED';setError(({CIDR_INVALID:'Ungültiges IPv4-CIDR.',CIDR_TOO_LARGE:'Das Netz darf maximal /23 groß sein.',CIDR_NOT_PRIVATE:'Es sind nur private IPv4-Netze erlaubt.',SCAN_PORTS_REQUIRED:'Mindestens einen Dienst oder Port auswählen.'}as Record<string,string>)[message]??message)}finally{setBusy(false)}};
+  const save=async()=>{setBusy(true);setError('');try{const chosen=results.filter(result=>selected.has(scanKey(result))&&!duplicateResource(resources,result,types[scanKey(result)]??result.suggestedType));if(!chosen.length)throw new Error('Keine neuen Funde ausgewählt.');for(const[index,result]of chosen.entries()){const key=scanKey(result);const type=types[key]??result.suggestedType;const username=(usernames[key]??'').trim();if(type==='ssh'&&!username)throw new Error(`SSH-Benutzer für ${result.ip}:${result.port} fehlt.`);const hostName=result.hostname?.replace(/\.$/,'')||result.ip;const label=type==='web'?`Web ${result.port}`:`${type.toUpperCase()} ${result.port}`;const config=type==='web'?{url:`${result.scheme}://${result.ip}${((result.scheme==='http'&&result.port===80)||(result.scheme==='https'&&result.port===443))?'':`:${result.port}`}`,mode:'auto',authType:'none',sandbox:'allow-forms allow-modals allow-popups allow-scripts allow-same-origin'}:type==='ssh'?{host:result.ip,port:result.port,username,authType:'password',verifyHostKey:false,hostKeyFingerprint:''}:{host:result.ip,port:result.port,username,domain:'',security:'nla',ignoreCertificate:false};await api.createResource({type,name:`${hostName} · ${label}`,notes:`Gefunden per Netzwerkscan in ${cidr.trim()}`,tags:[],categoryId:null,icon:'link',position:resources.length+index,enabled:true,credentialId:null,config})}await onSaved();onClose()}catch(reason){setError(reason instanceof Error?reason.message:'Funde konnten nicht gespeichert werden.')}finally{setBusy(false)}};
+  return <div className="modal" role="dialog" aria-modal="true" aria-labelledby="network-scanner-title"><div className="network-scanner"><h2 id="network-scanner-title">Netzwerk scannen</h2><div className="scanner-settings"><label>IPv4-Netz (maximal /23)<input value={cidr} onChange={event=>setCidr(event.target.value)} placeholder="192.168.1.0/24"/></label><fieldset><legend>Standarddienste</legend><label className="checkbox"><input type="checkbox" checked={web} onChange={event=>setWeb(event.target.checked)}/> Web (80, 443, 8080, 8443)</label><label className="checkbox"><input type="checkbox" checked={ssh} onChange={event=>setSsh(event.target.checked)}/> SSH (22)</label><label className="checkbox"><input type="checkbox" checked={rdp} onChange={event=>setRdp(event.target.checked)}/> RDP (3389)</label></fieldset><label>Zusätzliche Ports (max. 16)<input value={customPorts} onChange={event=>setCustomPorts(event.target.value)} placeholder="z. B. 3000, 8123, 2222"/></label><button className="primary" type="button" disabled={busy} onClick={()=>void scan()}>{busy?'Scan läuft …':'Scan starten'}</button></div>
+  {results.length>0&&<div className="scanner-results"><table><thead><tr><th/><th>Adresse</th><th>DNS-Name</th><th>Port</th><th>Typ</th><th>Benutzer</th><th>Status</th></tr></thead><tbody>{results.map(result=>{const key=scanKey(result);const type=types[key]??result.suggestedType;const duplicate=duplicateResource(resources,result,type);return <tr key={key}><td><input aria-label={`${result.ip}:${result.port} auswählen`} type="checkbox" checked={selected.has(key)&&!duplicate} disabled={Boolean(duplicate)} onChange={event=>setSelected(current=>{const next=new Set(current);if(event.target.checked)next.add(key);else next.delete(key);return next})}/></td><td>{result.ip}</td><td>{result.hostname??'–'}</td><td>{result.port}{result.service==='unknown'?' (offen)':''}</td><td><select aria-label={`Typ für ${key}`} value={type} onChange={event=>setTypes(current=>({...current,[key]:event.target.value as ResourceType}))}><option value="web">Web</option><option value="ssh">SSH</option><option value="rdp">RDP</option></select></td><td>{type==='web'?'–':<input aria-label={`Benutzer für ${key}`} value={usernames[key]??''} onChange={event=>setUsernames(current=>({...current,[key]:event.target.value}))} placeholder={type==='ssh'?'erforderlich':'optional'}/>}</td><td>{duplicate?<span className="duplicate-hint">Bereits vorhanden: {duplicate.name}</span>:'Neu'}</td></tr>})}</tbody></table></div>}
+  {results.length===0&&!busy&&<p className="muted">Noch keine Funde. Ein /23 kann abhängig von Portanzahl und Erreichbarkeit einige Sekunden dauern.</p>}{results.some(result=>(types[scanKey(result)]??result.suggestedType)==='ssh'&&selected.has(scanKey(result)))&&<div className="security-warning">Automatisch angelegte SSH-Ressourcen haben zunächst keine Host-Key-Prüfung. Den Host-Key anschließend in der Ressource verifizieren und hinterlegen.</div>}{error&&<div role="alert" className="error">{error}</div>}<div className="actions"><button type="button" onClick={onClose} disabled={busy}>Schließen</button>{results.length>0&&<button className="primary" type="button" onClick={()=>void save()} disabled={busy}>Ausgewählte speichern</button>}</div></div></div>;
 }
 
 function ResourceTagsMenu({ resource, availableTags, onChange, onDelete }: { resource: Resource; availableTags: string[]; onChange: (tags: string[]) => Promise<void>; onDelete: (tag: string) => Promise<void> }) {

@@ -10,6 +10,10 @@ Passwörter werden mit Argon2id gehasht. Das initiale Adminpasswort kommt nur au
 
 Direktes HTTP verschlüsselt den Weg zwischen Browser und HomeOps nicht. Login, manuell eingegebene Zielpasswörter und angezeigte Sitzungsinhalte können daher von Teilnehmern mit Zugriff auf den LAN-Verkehr mitgelesen werden. Die Verschlüsselung gespeicherter Secrets in PostgreSQL bleibt davon unberührt. Dieser Modus ist nur für ein vollständig vertrauenswürdiges, nicht öffentlich erreichbares LAN gedacht.
 
+## Netzwerkscanner
+
+Der Netzwerkscanner ist authentifiziert, CSRF-geschützt und auf drei Starts pro Minute begrenzt. Er akzeptiert ausschließlich private IPv4-Netze nach RFC 1918 bis einschließlich `/23`, maximal 16 frei angegebene Ports zusätzlich zu den auswählbaren Standardports und öffnet nur kurzlebige TCP-Prüfverbindungen. Größere oder öffentliche Netze werden serverseitig abgewiesen. Reverse-DNS-Namen sind lediglich Hinweise und kein Identitätsnachweis. Automatisch gespeicherte SSH-Ressourcen müssen deshalb anschließend um einen geprüften Host-Key ergänzt werden.
+
 ## Secrets
 
 Gespeicherte Ziel-Credentials werden mit AES-256-GCM authentifiziert verschlüsselt. Der 32-Byte-`MASTER_KEY` liegt ausschließlich in der Deployment-Umgebung und gehört getrennt vom Datenbankbackup gesichert. Ein Schlüsselverlust macht Secrets unlesbar. Rotation: neuen Schlüssel bereitstellen, Secrets in einem Wartungsfenster entschlüsseln/neu verschlüsseln, `key_version` erhöhen, alten Schlüssel erst nach geprüftem Backup löschen. API-GET-Antworten enthalten nur `hasSecret`.

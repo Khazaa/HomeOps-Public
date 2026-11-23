@@ -1,11 +1,11 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ logout: vi.fn() }));
+const mocks = vi.hoisted(() => ({ logout: vi.fn(), me: vi.fn() }));
 
 vi.mock('../src/api', () => ({
   api: {
-    me: vi.fn().mockResolvedValue({ user: { id: 'user-a', username: 'admin', role: 'admin' } }),
+    me: mocks.me,
     resources: vi.fn().mockResolvedValue([]),
     categories: vi.fn().mockResolvedValue([]),
     credentials: vi.fn().mockResolvedValue([]),
@@ -19,6 +19,7 @@ import { App } from '../src/App';
 
 beforeEach(() => {
   mocks.logout.mockReset();
+  mocks.me.mockReset().mockResolvedValue({ user: { id: 'user-a', username: 'admin', role: 'admin' } });
   localStorage.clear();
   Object.defineProperty(window, 'matchMedia', {
     configurable: true,
@@ -37,6 +38,14 @@ test('shows a visible error when logout is rejected', async () => {
 
   await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Logout fehlgeschlagen: APP_ORIGIN stimmt nicht mit der Browseradresse überein.'));
   expect(screen.queryByRole('button', { name: 'Anmelden' })).not.toBeInTheDocument();
+});
+
+test('shows an empty focused username field on login', async () => {
+  mocks.me.mockRejectedValueOnce(new Error('UNAUTHORIZED'));
+  render(<App />);
+  const username = await screen.findByLabelText('Benutzername');
+  expect(username).toHaveValue('');
+  expect(username).toHaveFocus();
 });
 
 test('returns to login after the server confirms logout', async () => {

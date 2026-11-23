@@ -15,6 +15,7 @@ import GuacamoleLite from 'guacamole-lite';
 import { loadConfig } from './config.js';
 import { createDb, migrate } from './db.js';
 import { decryptSecret, encryptSecret, isSafeHost, randomToken, sha256 } from './security.js';
+import { scanPrivateNetwork } from './network-scan.js';
 import { buildProxyTarget, proxyBasePath, requestBasicAuthTarget, rewriteProxyCss, rewriteProxyHtml, rewriteProxyLocation } from './web-proxy.js';
 
 const config = loadConfig();
@@ -106,6 +107,12 @@ app.patch('/api/v1/credentials/:id', { preHandler:[authenticate,requireCsrf] }, 
 app.delete('/api/v1/credentials/:id', { preHandler:[authenticate,requireCsrf] }, async request => {const id=z.string().uuid().parse((request.params as {id:string}).id);const result=await db.query('DELETE FROM credentials WHERE id=$1 AND owner_id=$2',[id,request.authUser!.id]);if(!result.rowCount)throw app.httpErrors.notFound();return {ok:true};});
 
 app.get('/api/v1/resources', { preHandler: authenticate }, async request => (await db.query(`SELECT DISTINCT r.* FROM resources r LEFT JOIN resource_permissions p ON p.resource_id=r.id AND p.user_id=$1 WHERE r.owner_id=$1 OR p.permission IN ('use','manage') ORDER BY r.position,r.name`,[request.authUser!.id])).rows.map(cleanResource));
+app.post('/api/v1/network/scan', { config: { rateLimit: { max: 3, timeWindow: '1 minute' } }, preHandler: [authenticate, requireCsrf] }, async request => {
+  const body=z.object({cidr:z.string().max(32),web:z.boolean().default(true),ssh:z.boolean().default(true),rdp:z.boolean().default(true),ports:z.array(z.number().int().min(1).max(65535)).max(16).default([])}).parse(request.body);
+  const ports=[...new Set([...(body.web?[80,443,8080,8443]:[]),...(body.ssh?[22]:[]),...(body.rdp?[3389]:[]),...body.ports])].sort((a,b)=>a-b);
+  if(!ports.length)throw app.httpErrors.badRequest('SCAN_PORTS_REQUIRED');
+  try{return {results:await scanPrivateNetwork(body.cidr,ports)};}catch(error){const code=error instanceof Error&&/^CIDR_/.test(error.message)?error.message:'SCAN_FAILED';throw app.httpErrors.badRequest(code);}
+});
 app.post('/api/v1/resources', { preHandler: [authenticate, requireCsrf] }, async request => {
   const b=resourceInput.parse(request.body);if(b.secret&&b.credentialId)throw app.httpErrors.badRequest('MULTIPLE_CREDENTIAL_SOURCES');await validateCredentialAssignment(request.authUser!.id,b.type,b.config,b.credentialId); const client=await db.connect(); try { await client.query('BEGIN'); let secretId=null; if(b.secret){ secretId=(await client.query('INSERT INTO secrets(owner_id,payload) VALUES($1,$2) RETURNING id',[request.authUser!.id,encryptSecret(b.secret,config.MASTER_KEY)])).rows[0].id; } const r=(await client.query('INSERT INTO resources(type,name,notes,tags,category_id,icon,position,enabled,owner_id,config,secret_id,credential_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *',[b.type,b.name,b.notes,b.tags,b.categoryId??null,b.icon,b.position,b.enabled,request.authUser!.id,b.config,secretId,b.credentialId??null])).rows[0]; await client.query('COMMIT'); return cleanResource(r); } catch(e){await client.query('ROLLBACK');throw e;} finally{client.release();}
 });

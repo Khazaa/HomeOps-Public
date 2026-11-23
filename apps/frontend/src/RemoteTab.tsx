@@ -3,6 +3,7 @@ import Guacamole from 'guacamole-common-js';
 import { api } from './api';
 import { sendClipboardText } from './remoteClipboard';
 import { RemoteKeyboardController } from './remoteKeyboard';
+import { sendRemoteSize } from './remoteSize';
 import type { Resource } from './types';
 
 type State = 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -12,6 +13,7 @@ export const RemoteTab = memo(function RemoteTab({ resource, active }: { resourc
   const host = useRef<HTMLDivElement>(null);
   const client = useRef<any>(null);
   const keyboard = useRef<any>(null);
+  const clipboardCapture = useRef<HTMLTextAreaElement>(null);
   const autoConnectAttempted = useRef(false);
   const [state, setState] = useState<State>('disconnected');
   const [error, setError] = useState('');
@@ -66,7 +68,7 @@ export const RemoteTab = memo(function RemoteTab({ resource, active }: { resourc
       const mouse = new Guacamole.Mouse(displayElement);
       mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = (mouseState: any) => guac.sendMouseState(mouseState);
       keyboard.current = new Guacamole.Keyboard(host.current);
-      const keyboardController = new RemoteKeyboardController(guac);
+      const keyboardController = new RemoteKeyboardController(guac, resource.type === 'ssh' ? () => clipboardCapture.current?.focus() : undefined);
       keyboard.current.onkeydown = (key: number) => keyboardController.keyDown(key);
       keyboard.current.onkeyup = (key: number) => keyboardController.keyUp(key);
       guac.connect(`token=${encodeURIComponent(ticket.token)}`);
@@ -93,7 +95,7 @@ export const RemoteTab = memo(function RemoteTab({ resource, active }: { resourc
     const observer = new ResizeObserver(([entry]) => {
       if (!active || !client.current) return;
       fitDisplay();
-      if (resource.type === 'rdp') client.current.sendSize?.(Math.max(320, Math.floor(entry.contentRect.width)), Math.max(200, Math.floor(entry.contentRect.height)));
+      sendRemoteSize(client.current, entry.contentRect.width, entry.contentRect.height);
     });
     observer.observe(host.current);
     if (active) requestAnimationFrame(fitDisplay);
@@ -120,5 +122,6 @@ export const RemoteTab = memo(function RemoteTab({ resource, active }: { resourc
     </form>
     {error && <div role="alert" className="error">{error}</div>}
     <div ref={host} className="remote-display" tabIndex={0} onPointerDown={event => event.currentTarget.focus()} />
+    {resource.type === 'ssh' && <textarea ref={clipboardCapture} className="remote-clipboard-capture" aria-label="SSH-Zwischenablage" tabIndex={-1} />}
   </div>;
 });

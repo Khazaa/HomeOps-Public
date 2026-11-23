@@ -5,13 +5,14 @@ export class RemoteKeyboardController {
   private readonly pressed = new Set<number>();
   private readonly nativeKeys = new Set<number>();
 
-  constructor(private readonly client: any) {}
+  constructor(private readonly client: any, private readonly focusClipboard?: () => void) {}
 
   keyDown(key: number) {
-    const nativePaste = key === V_KEY && [...CTRL_KEYS].some(ctrl => this.pressed.has(ctrl));
+    const nativePaste = Boolean(this.focusClipboard) && key === V_KEY && [...CTRL_KEYS].some(ctrl => this.pressed.has(ctrl));
     this.pressed.add(key);
     if (nativePaste) {
       this.nativeKeys.add(key);
+      this.focusClipboard?.();
       return true;
     }
     this.client.sendKeyEvent(1, key);

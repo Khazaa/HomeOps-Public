@@ -82,4 +82,4 @@ Weitere Hinweise:
 
 ## Lizenz
 
-Für dieses Repository ist derzeit keine Open-Source-Lizenz hinterlegt. Die öffentliche Sichtbarkeit allein erteilt keine darüber hinausgehenden Nutzungsrechte.
+HomeOps Hub ist unter der [MIT-Lizenz](LICENSE) veröffentlicht.

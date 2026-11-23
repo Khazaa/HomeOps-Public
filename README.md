@@ -20,6 +20,48 @@ HomeOps Hub bündelt Weboberflächen, SSH-Terminals und RDP-Desktops in einer ge
 - HTTPS-Reverse-Proxy
 - Netzwerkzugriff der Docker-Container auf die gewünschten Zielsysteme
 
+## Installation mit Docker Compose
+
+Für die Installation mit dem fertigen öffentlichen Image werden nur [`deploy/compose.yaml`](deploy/compose.yaml) und [`deploy/.env.example`](deploy/.env.example) benötigt:
+
+```sh
+mkdir homeops && cd homeops
+curl -fsSLO https://raw.githubusercontent.com/Khazaa/HomeOps-Public/main/deploy/compose.yaml
+curl -fsSL https://raw.githubusercontent.com/Khazaa/HomeOps-Public/main/deploy/.env.example -o .env.example
+cp .env.example .env
+```
+
+Anschließend `.env` bearbeiten:
+
+- `APP_ORIGIN`: exakte öffentliche HTTPS-Adresse, beispielsweise `https://homeops.example.lan`
+- `POSTGRES_PASSWORD`: langes, zufälliges Datenbankkennwort
+- `MASTER_KEY`: exakt 32 Zufallsbytes als Base64url ohne Padding (43 Zeichen)
+- `GUAC_TOKEN_KEY`: mindestens 32 zufällige Zeichen, unabhängig vom Master-Key
+- `ADMIN_INITIAL_PASSWORD`: individuelles initiales Admin-Kennwort mit mindestens 12 Zeichen
+
+Mit OpenSSL lassen sich geeignete Werte erzeugen. Den Befehl für jedes Secret separat ausführen und keinen Wert wiederverwenden:
+
+```sh
+openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n'
+```
+
+Danach starten:
+
+```sh
+docker compose pull
+docker compose up -d
+docker compose ps
+curl http://127.0.0.1:3000/health
+```
+
+Der HTTPS-Reverse-Proxy muss auf `127.0.0.1:3000` zeigen und WebSocket-Upgrades für `/api/v1/tunnel` erlauben. Nach der ersten erfolgreichen Anmeldung `ADMIN_INITIAL_PASSWORD=` in `.env` setzen und den Web-Container neu erstellen:
+
+```sh
+docker compose up -d --force-recreate web
+```
+
+Jede Installation benötigt eigene Secrets und ein eigenes Admin-Kennwort. `.env`, `MASTER_KEY` und Datenbankdumps dürfen nicht weitergegeben oder eingecheckt werden.
+
 ## Schnellstart aus dem Quellcode
 
 1. Repository klonen und `.env.example` nach `.env` kopieren.

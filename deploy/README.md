@@ -2,7 +2,7 @@
 
 Dieses Verzeichnis enthält das eigenständige Deployment-Paket. Benötigt werden Docker Engine, Compose v2, ein HTTPS-Reverse-Proxy und ein Image für `amd64` oder `arm64`.
 
-Veröffentlichte Versionen verwenden `ghcr.io/khazaa/homeops-public:<version>`, aktuell `ghcr.io/khazaa/homeops-public:v0.1.1`.
+Für einfache Updates wird `ghcr.io/khazaa/homeops-public:latest` verwendet. Reproduzierbare Installationen und Rollbacks können stattdessen einen festen Versionstag wie `ghcr.io/khazaa/homeops-public:v0.1.2` in `.env` setzen.
 
 ## Neuinstallation
 
@@ -19,7 +19,7 @@ Der veröffentlichte Port bindet standardmäßig ausschließlich an Loopback. F�
 
 ## Update
 
-Vor jedem Update Datenbank und `MASTER_KEY` sichern. Anschließend `HOMEOPS_IMAGE` in `.env` auf einen freigegebenen Versionstag setzen und ausführen:
+Vor jedem Update Datenbank und `MASTER_KEY` sichern. Bei `latest` sind keine Änderungen an `.env` nötig; bei festen Versionen `HOMEOPS_IMAGE` auf den gewünschten Tag setzen. Anschließend ausführen:
 
 ```sh
 docker compose pull web

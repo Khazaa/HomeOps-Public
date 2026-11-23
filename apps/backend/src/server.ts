@@ -48,7 +48,10 @@ async function requireCsrf(request: FastifyRequest): Promise<void> {
   const token = request.headers['x-csrf-token'];
   if (typeof token !== 'string' || !request.authUser || sha256(token) !== request.authUser.csrfHash) throw app.httpErrors.forbidden('CSRF_INVALID');
   const origin = request.headers.origin;
-  if (origin && origin !== config.APP_ORIGIN) throw app.httpErrors.forbidden('ORIGIN_INVALID');
+  if (origin && origin !== config.APP_ORIGIN) {
+    request.log.warn({ origin, expectedOrigin: config.APP_ORIGIN }, 'Rejected request origin');
+    throw app.httpErrors.forbidden('ORIGIN_INVALID');
+  }
 }
 async function ownedResource(id: string, userId: string) {
   const result = await db.query(`SELECT r.* FROM resources r LEFT JOIN resource_permissions p ON p.resource_id=r.id AND p.user_id=$2 WHERE r.id=$1 AND r.enabled AND (r.owner_id=$2 OR p.permission IN ('use','manage'))`, [id, userId]);

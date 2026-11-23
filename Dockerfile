@@ -1,4 +1,6 @@
 FROM node:22-bookworm-slim AS frontend
+ARG VITE_APP_VERSION=development
+ENV VITE_APP_VERSION=$VITE_APP_VERSION
 WORKDIR /src/apps/frontend
 COPY apps/frontend/package*.json ./
 RUN npm ci --workspaces=false

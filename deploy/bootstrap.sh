@@ -8,7 +8,7 @@ if [[ -e .env ]]; then
 fi
 command -v openssl >/dev/null || { echo "openssl wird zum Erzeugen der Secrets benötigt." >&2; exit 1; }
 
-image="ghcr.io/khazaa/homeops-public:v0.1.1"
+image="ghcr.io/khazaa/homeops-public:latest"
 read -r -p "Externe HTTPS-URL (z. B. https://homeops.example.lan): " origin
 read -r -s -p "Initiales Admin-Kennwort (mindestens 12 Zeichen): " admin_password
 echo

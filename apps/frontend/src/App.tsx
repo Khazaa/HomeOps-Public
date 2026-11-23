@@ -6,6 +6,7 @@ import type { AuditEvent, Category, Credential, Resource, ResourceType, Tab } fr
 import { WebTab } from './WebTab';
 
 const INBOX_WORKSPACE_ID = 'inbox';
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || 'development';
 const loadTabs = (): Tab[] => {
   try { return (JSON.parse(localStorage.getItem('homeops.tabs') ?? '[]') as Array<Omit<Tab, 'workspaceId'> & { workspaceId?: string }>).map(tab => ({ ...tab, workspaceId: tab.workspaceId || INBOX_WORKSPACE_ID })); }
   catch { return []; }
@@ -65,6 +66,7 @@ export function App() {
   const [auditEvents, setAuditEvents] = useState<AuditEvent[] | null>(null);
   const [backupOpen, setBackupOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const preferenceSaveQueue = useRef<Promise<void>>(Promise.resolve());
 
@@ -389,7 +391,8 @@ export function App() {
       setTabs([]);
       setUser(null);
     } catch (reason) {
-      setNotice(`Logout fehlgeschlagen: ${reason instanceof Error ? reason.message : 'Unbekannter Fehler'}`);
+      const message = reason instanceof Error ? reason.message : 'Unbekannter Fehler';
+      setNotice(message === 'ORIGIN_INVALID' ? 'Logout fehlgeschlagen: APP_ORIGIN stimmt nicht mit der Browseradresse überein.' : `Logout fehlgeschlagen: ${message}`);
     }
   };
 
@@ -504,6 +507,7 @@ export function App() {
             <button role="menuitem" onClick={async () => { setAccountMenuOpen(false); try { setAuditEvents((await api.audit()).events); } catch (reason) { setNotice(reason instanceof Error ? reason.message : 'Verlauf konnte nicht geladen werden.'); } }}>Verbindungsverlauf</button>
             <button role="menuitem" onClick={() => { setAccountMenuOpen(false); setBackupOpen(true); }}>Backup &amp; Restore</button>
             <button role="menuitem" onClick={async () => { setAccountMenuOpen(false); if (installPrompt) { await installPrompt.prompt(); const choice = await installPrompt.userChoice; if (choice.outcome === 'accepted') setInstallPrompt(null); } else setNotice('Im Browser-Menü „App installieren“ bzw. „Zum Startbildschirm“ wählen.'); }}>App installieren</button>
+            <button role="menuitem" onClick={() => { setAccountMenuOpen(false); setInfoOpen(true); }}>Info</button>
             <button role="menuitem" onClick={() => { setAccountMenuOpen(false); setChangingPassword(true); }}>Kennwort ändern</button>
             <button role="menuitem" onClick={() => void logout()}>Logout</button>
           </div>}
@@ -566,6 +570,7 @@ export function App() {
     {auditEvents && <AuditHistory events={auditEvents} onClose={() => setAuditEvents(null)} />}
     {backupOpen && <BackupCenter categories={categories} resources={resources} preferences={preferences} onClose={() => setBackupOpen(false)} onRestored={async restoredPreferences => { setPreferences(restoredPreferences); await refresh(); }} />}
     {workspaceOpen && <WorkspaceManager workspaces={workspaces} tabs={tabs} onCreate={createWorkspace} onRename={renameWorkspace} onDelete={deleteWorkspace} onOpen={workspace => selectWorkspace(workspace.id)} onClose={() => setWorkspaceOpen(false)} />}
+    {infoOpen && <div className="modal" role="dialog" aria-modal="true" aria-labelledby="homeops-info-title" onPointerDown={event => { if (event.target === event.currentTarget) setInfoOpen(false); }}><div className="info-dialog"><h2 id="homeops-info-title">HomeOps Hub</h2><p>Version <strong>{APP_VERSION}</strong></p><p className="muted">Self-hosted Hub für Web, SSH und RDP.</p><a href="https://github.com/Khazaa/HomeOps-Public" target="_blank" rel="noreferrer">Repository auf GitHub</a><div className="actions"><button onClick={() => setInfoOpen(false)}>Schließen</button></div></div></div>}
     {launcherOpen && <div className="modal command-palette" onPointerDown={event => { if (event.target === event.currentTarget) setLauncherOpen(false); }}><form onSubmit={event => { event.preventDefault(); const resource = launcherResults[0]; if (resource) { open(resource); setLauncherOpen(false); } }}>
       <label>Ressource öffnen<input autoFocus aria-label="Schnellstarter" value={launcherQuery} onChange={event => setLauncherQuery(event.target.value)} placeholder="Name eingeben …" /></label>
       <div className="command-results">{launcherResults.map(resource => <button type="button" key={resource.id} onClick={() => { open(resource); setLauncherOpen(false); }}>{typeIcon(resource.type)}<span>{resource.name}</span><small>Enter</small></button>)}{!launcherResults.length && <p className="muted">Keine Ressource gefunden.</p>}</div>

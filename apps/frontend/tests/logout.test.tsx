@@ -35,7 +35,7 @@ test('shows a visible error when logout is rejected', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Benutzermenü' }));
   fireEvent.click(screen.getByRole('menuitem', { name: 'Logout' }));
 
-  await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Logout fehlgeschlagen: ORIGIN_INVALID'));
+  await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Logout fehlgeschlagen: APP_ORIGIN stimmt nicht mit der Browseradresse überein.'));
   expect(screen.queryByRole('button', { name: 'Anmelden' })).not.toBeInTheDocument();
 });
 
@@ -48,4 +48,16 @@ test('returns to login after the server confirms logout', async () => {
   fireEvent.click(screen.getByRole('menuitem', { name: 'Logout' }));
 
   expect(await screen.findByRole('button', { name: 'Anmelden' })).toBeVisible();
+});
+
+test('shows the build version in the info dialog', async () => {
+  render(<App />);
+
+  await screen.findByPlaceholderText('Suchen …');
+  fireEvent.click(screen.getByRole('button', { name: 'Benutzermenü' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Info' }));
+
+  const dialog = await screen.findByRole('dialog', { name: 'HomeOps Hub' });
+  expect(dialog).toHaveTextContent(/Version (development|test)/);
+  expect(screen.getByRole('link', { name: 'Repository auf GitHub' })).toHaveAttribute('href', 'https://github.com/Khazaa/HomeOps-Public');
 });

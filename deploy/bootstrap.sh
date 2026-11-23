@@ -8,14 +8,14 @@ if [[ -e .env ]]; then
 fi
 command -v openssl >/dev/null || { echo "openssl wird zum Erzeugen der Secrets benötigt." >&2; exit 1; }
 
-read -r -p "HomeOps Image (z. B. ghcr.io/khazaa/homeops:v0.1.0): " image
+image="ghcr.io/khazaa/homeops-public:v0.1.0"
 read -r -p "Externe HTTPS-URL (z. B. https://homeops.example.lan): " origin
 read -r -s -p "Initiales Admin-Kennwort (mindestens 12 Zeichen): " admin_password
 echo
 read -r -s -p "Admin-Kennwort bestätigen: " admin_password_confirmation
 echo
-if [[ "$admin_password" != "$admin_password_confirmation" || ! "$image" =~ ^[a-z0-9][a-z0-9._/:@-]+$ || ! "$origin" =~ ^https://[A-Za-z0-9._:-]+$ || ${#admin_password} -lt 12 || ! "$admin_password" =~ ^[A-Za-z0-9._~!@%+=:-]+$ ]]; then
-  echo "Image, HTTPS-URL oder Admin-Kennwort ist ungültig. Beim Kennwort sind Buchstaben, Ziffern und ._~!@%+=:- erlaubt." >&2
+if [[ "$admin_password" != "$admin_password_confirmation" || ! "$origin" =~ ^https://[A-Za-z0-9._:-]+$ || ${#admin_password} -lt 12 || ! "$admin_password" =~ ^[A-Za-z0-9._~!@%+=:-]+$ ]]; then
+  echo "HTTPS-URL oder Admin-Kennwort ist ungültig. Beim Kennwort sind Buchstaben, Ziffern und ._~!@%+=:- erlaubt." >&2
   exit 1
 fi
 

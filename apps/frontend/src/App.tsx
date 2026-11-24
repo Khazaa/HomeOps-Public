@@ -582,13 +582,38 @@ export function App() {
 }
 
 function Dashboard({ resources, favorites, recent, credentials, status, openTabs, onOpen }: { resources: Resource[]; favorites: Resource[]; recent: Resource[]; credentials: Credential[]; status: Record<string, { state: 'checking' | 'online' | 'offline'; message: string }>; openTabs: number; onOpen: (resource: Resource) => void }) {
+  const scrollArea = useRef<HTMLElement>(null);
+  const scrollRail = useRef<HTMLDivElement>(null);
+  const [scrollMetrics, setScrollMetrics] = useState({ top: 0, viewport: 1, content: 1, rail: 1 });
   const online = Object.values(status).filter(entry => entry.state === 'online').length;
   const offline = Object.values(status).filter(entry => entry.state === 'offline').length;
   const offlineResources = resources
     .filter(resource => status[resource.id]?.state === 'offline')
     .sort((left, right) => left.name.localeCompare(right.name, 'de', { sensitivity: 'base' }));
   const expiring = credentials.filter(credential => credential.expiresAt && new Date(credential.expiresAt).getTime() <= Date.now() + 30 * 86_400_000).sort((a, b) => new Date(a.expiresAt!).getTime() - new Date(b.expiresAt!).getTime());
-  return <section className="dashboard">
+  useEffect(() => {
+    const area = scrollArea.current;
+    if (!area) return;
+    const update = () => setScrollMetrics({ top: area.scrollTop, viewport: area.clientHeight, content: area.scrollHeight, rail: scrollRail.current?.clientHeight ?? area.clientHeight });
+    const frame = requestAnimationFrame(update);
+    area.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    return () => { cancelAnimationFrame(frame); area.removeEventListener('scroll', update); window.removeEventListener('resize', update); };
+  }, [resources.length, favorites.length, recent.length, credentials.length, status]);
+  const maxScroll = Math.max(0, scrollMetrics.content - scrollMetrics.viewport);
+  const thumbHeight = maxScroll ? Math.max(48, scrollMetrics.rail * scrollMetrics.viewport / scrollMetrics.content) : scrollMetrics.rail;
+  const thumbTop = maxScroll ? scrollMetrics.top / maxScroll * Math.max(0, scrollMetrics.rail - thumbHeight) : 0;
+  const scrollFromPointer = (event: ReactPointerEvent<HTMLDivElement>, capture: boolean) => {
+    const area = scrollArea.current;
+    if (!area || !maxScroll) return;
+    if (!capture && !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+    if (capture) event.currentTarget.setPointerCapture(event.pointerId);
+    const rect = event.currentTarget.getBoundingClientRect();
+    const available = Math.max(1, rect.height - thumbHeight);
+    const position = Math.max(0, Math.min(available, event.clientY - rect.top - thumbHeight / 2));
+    area.scrollTop = position / available * maxScroll;
+  };
+  return <div className="dashboard-shell"><section id="homeops-dashboard" ref={scrollArea} className="dashboard">
     <div className="dashboard-heading"><div><h1>Übersicht</h1><p>Dein HomeOps Hub auf einen Blick.</p></div><BrandMark size={48} /></div>
     <div className="dashboard-stats">
       <article><strong>{resources.length}</strong><span>Ressourcen</span></article>
@@ -602,7 +627,7 @@ function Dashboard({ resources, favorites, recent, credentials, status, openTabs
       <article><h2>Zuletzt verwendet</h2><div className="dashboard-list">{recent.length ? recent.slice(0, 8).map(resource => <button key={resource.id} onClick={() => onOpen(resource)}>{typeIcon(resource.type)}<span>{resource.name}</span></button>) : <p className="muted">Noch keine Ressource geöffnet.</p>}</div></article>
       <article><h2>Credential-Hinweise</h2><div className="dashboard-list">{expiring.length ? expiring.slice(0, 8).map(credential => <div className="dashboard-warning" key={credential.id}><strong>{credential.name}</strong><small>{new Date(credential.expiresAt!) <= new Date() ? 'Abgelaufen' : `Läuft am ${new Date(credential.expiresAt!).toLocaleDateString('de-DE')} ab`}</small></div>) : <p className="muted">Keine Credentials laufen in den nächsten 30 Tagen ab.</p>}</div></article>
     </div>
-  </section>;
+  </section><div ref={scrollRail} className={`dashboard-scrollbar${maxScroll ? '' : ' disabled'}`} role="scrollbar" aria-label="Übersicht scrollen" aria-controls="homeops-dashboard" aria-orientation="vertical" aria-valuemin={0} aria-valuemax={Math.round(maxScroll)} aria-valuenow={Math.round(scrollMetrics.top)} onPointerDown={event => scrollFromPointer(event, true)} onPointerMove={event => scrollFromPointer(event, false)}><span style={{ height: thumbHeight, transform: `translateY(${thumbTop}px)` }} /></div></div>;
 }
 
 function WorkspaceManager({ workspaces, tabs, onCreate, onRename, onDelete, onOpen, onClose }: { workspaces: Workspace[]; tabs: Tab[]; onCreate: (name: string) => void; onRename: (id: string) => void; onDelete: (id: string) => void; onOpen: (workspace: Workspace) => void; onClose: () => void }) {

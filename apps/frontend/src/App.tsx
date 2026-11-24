@@ -790,6 +790,11 @@ function Login({ onSuccess }: { onSuccess: () => void }) {
 }
 
 const scanKey = (result: NetworkScanResult) => `${result.ip}:${result.port}`;
+const defaultScanName = (result: NetworkScanResult, type: ResourceType = result.suggestedType) => {
+  const hostName = result.hostname?.replace(/\.$/, '') || result.ip;
+  const label = type === 'web' ? `Web ${result.port}` : `${type.toUpperCase()} ${result.port}`;
+  return `${hostName} · ${label}`;
+};
 function findDuplicateResource(resources: Resource[], result: NetworkScanResult, type: ResourceType) {
   const hosts = new Set([result.ip, result.hostname].filter(Boolean).map(value => String(value).toLowerCase().replace(/\.$/, '')));
   return resources.find(resource => {
@@ -810,6 +815,7 @@ function NetworkScanner({ resources, initialResults, onClose, onSaved }: { resou
   const [customPorts, setCustomPorts] = useState('');
   const [results, setResults] = useState<NetworkScanResult[]>(initialResults);
   const [types, setTypes] = useState<Record<string, ResourceType>>(() => Object.fromEntries(initialResults.map(result => [scanKey(result), result.suggestedType])));
+  const [names, setNames] = useState<Record<string, string>>(() => Object.fromEntries(initialResults.map(result => [scanKey(result), defaultScanName(result)])));
   const [usernames, setUsernames] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<Set<string>>(() => new Set(initialResults.map(scanKey)));
   const [busy, setBusy] = useState(false);
@@ -833,6 +839,7 @@ function NetworkScanner({ resources, initialResults, onClose, onSaved }: { resou
       const response = await api.scanNetwork({ cidr: cidr.trim(), web, ssh, rdp, ports });
       setResults(response.results);
       setTypes(Object.fromEntries(response.results.map(result => [scanKey(result), result.suggestedType])));
+      setNames(Object.fromEntries(response.results.map(result => [scanKey(result), defaultScanName(result)])));
       setSelected(new Set(response.results.map(scanKey)));
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : 'SCAN_FAILED';
@@ -853,23 +860,23 @@ function NetworkScanner({ resources, initialResults, onClose, onSaved }: { resou
       const chosen = results.filter(result => selected.has(scanKey(result)) && !findDuplicateResource(resources, result, types[scanKey(result)] ?? result.suggestedType));
       if (!chosen.length) throw new Error('Keine neuen Funde ausgewählt.');
       const prepared = chosen.map(result => {
-        const key = scanKey(result); const type = types[key] ?? result.suggestedType; const username = (usernames[key] ?? '').trim();
+        const key = scanKey(result); const type = types[key] ?? result.suggestedType; const username = (usernames[key] ?? '').trim(); const name = (names[key] ?? defaultScanName(result, type)).trim();
+        if (!name) throw new Error(`Name für ${result.ip}:${result.port} fehlt.`);
+        if (name.length > 120) throw new Error(`Name für ${result.ip}:${result.port} ist zu lang.`);
         if (type === 'ssh' && !username) throw new Error(`SSH-Benutzer für ${result.ip}:${result.port} fehlt.`);
-        return { result, type, username };
+        return { result, type, username, name };
       });
       const now = new Date(); const pad = (value: number) => String(value).padStart(2, '0');
       const scanGroup = await api.createCategory(`Scan ${pad(now.getDate())}.${pad(now.getMonth() + 1)}.${now.getFullYear()} ${pad(now.getHours())}:${pad(now.getMinutes())}`);
       const createdDiscoveries: NetworkScanResult[] = [];
       try {
-      for (const [index, { result, type, username }] of prepared.entries()) {
-        const hostName = (result.hostname?.replace(/\.$/, '') || result.ip);
-        const label = type === 'web' ? `Web ${result.port}` : `${type.toUpperCase()} ${result.port}`;
+      for (const [index, { result, type, username, name }] of prepared.entries()) {
         const config = type === 'web'
           ? { url: `${result.scheme}://${result.ip}${((result.scheme === 'http' && result.port === 80) || (result.scheme === 'https' && result.port === 443)) ? '' : `:${result.port}`}`, mode: 'auto', authType: 'none', sandbox: 'allow-forms allow-modals allow-popups allow-scripts allow-same-origin' }
           : type === 'ssh'
             ? { host: result.ip, port: result.port, username, authType: 'password', verifyHostKey: false, hostKeyFingerprint: '' }
             : { host: result.ip, port: result.port, username, domain: '', security: 'nla', ignoreCertificate: false };
-        await api.createResource({ type, name: `${hostName} · ${label}`, notes: `Gefunden per Netzwerkscan in ${cidr.trim()}`, tags: [], categoryId: scanGroup.id, icon: 'link', position: resources.length + index, enabled: true, credentialId: null, config });
+        await api.createResource({ type, name, notes: `Gefunden per Netzwerkscan in ${cidr.trim()}`, tags: [], categoryId: scanGroup.id, icon: 'link', position: resources.length + index, enabled: true, credentialId: null, config });
         createdDiscoveries.push(result);
       }
       } catch (reason) {
@@ -890,9 +897,9 @@ function NetworkScanner({ resources, initialResults, onClose, onSaved }: { resou
       <button className="primary" type="button" disabled={busy} onClick={() => void scan()}>{busy ? 'Scan läuft …' : 'Scan starten'}</button>
     </div>
     <section className="scanner-schedule"><div><h3>Automatischer Nacht-Scan</h3><p className="muted">Läuft täglich serverseitig – auch wenn kein Browser geöffnet ist. Gefundene Systeme werden erst nach deiner Bestätigung angelegt.</p></div><label className="checkbox"><input type="checkbox" checked={scheduleEnabled} onChange={event => setScheduleEnabled(event.target.checked)} /> Täglich ausführen</label><label>Uhrzeit<input type="time" value={runTime} onChange={event => setRunTime(event.target.value)} /></label><label>Zeitzone<input value={timezone} onChange={event => setTimezone(event.target.value)} placeholder="Europe/Berlin" /></label><button type="button" disabled={busy} onClick={() => void saveSchedule()}>Zeitplan speichern</button>{scheduleStatus.lastRunAt && <small>Letzter Lauf: {new Date(scheduleStatus.lastRunAt).toLocaleString('de-DE')}{scheduleStatus.lastError ? ` · Fehler: ${scheduleStatus.lastError}` : ''}</small>}</section>
-    {results.length > 0 && <div className="scanner-results"><table><thead><tr><th /><th>Adresse</th><th>DNS-Name</th><th>Port</th><th>Typ</th><th>Benutzer</th><th>Status</th></tr></thead><tbody>{results.map(result => {
+    {results.length > 0 && <div className="scanner-results"><table><thead><tr><th /><th>Adresse</th><th>DNS-Name</th><th>Port</th><th>Name der Ressource</th><th>Typ</th><th>Benutzer</th><th>Status</th></tr></thead><tbody>{results.map(result => {
       const key=scanKey(result); const type=types[key]??result.suggestedType; const duplicate=findDuplicateResource(resources,result,type);
-      return <tr key={key}><td><input aria-label={`${result.ip}:${result.port} auswählen`} type="checkbox" checked={selected.has(key)&&!duplicate} disabled={Boolean(duplicate)} onChange={event => setSelected(current => { const next=new Set(current); if(event.target.checked)next.add(key);else next.delete(key);return next; })} /></td><td>{result.ip}</td><td>{result.hostname??'–'}</td><td>{result.port}{result.service==='unknown'?' (offen)':''}</td><td><select aria-label={`Typ für ${key}`} value={type} onChange={event => setTypes(current=>({...current,[key]:event.target.value as ResourceType}))}><option value="web">Web</option><option value="ssh">SSH</option><option value="rdp">RDP</option></select></td><td>{type==='web'?'–':<input aria-label={`Benutzer für ${key}`} value={usernames[key]??''} onChange={event=>setUsernames(current=>({...current,[key]:event.target.value}))} placeholder={type==='ssh'?'erforderlich':'optional'} />}</td><td>{duplicate?<span className="duplicate-hint">Bereits vorhanden: {duplicate.name}</span>:'Neu'}</td></tr>;
+      return <tr key={key}><td><input aria-label={`${result.ip}:${result.port} auswählen`} type="checkbox" checked={selected.has(key)&&!duplicate} disabled={Boolean(duplicate)} onChange={event => setSelected(current => { const next=new Set(current); if(event.target.checked)next.add(key);else next.delete(key);return next; })} /></td><td>{result.ip}</td><td>{result.hostname??'–'}</td><td>{result.port}{result.service==='unknown'?' (offen)':''}</td><td><input aria-label={`Name für ${key}`} maxLength={120} value={names[key]??defaultScanName(result,type)} disabled={Boolean(duplicate)} onChange={event=>setNames(current=>({...current,[key]:event.target.value}))} /></td><td><select aria-label={`Typ für ${key}`} value={type} onChange={event=>{const nextType=event.target.value as ResourceType;setTypes(current=>({...current,[key]:nextType}));setNames(current=>current[key]===defaultScanName(result,type)?{...current,[key]:defaultScanName(result,nextType)}:current);}}><option value="web">Web</option><option value="ssh">SSH</option><option value="rdp">RDP</option></select></td><td>{type==='web'?'–':<input aria-label={`Benutzer für ${key}`} value={usernames[key]??''} onChange={event=>setUsernames(current=>({...current,[key]:event.target.value}))} placeholder={type==='ssh'?'erforderlich':'optional'} />}</td><td>{duplicate?<span className="duplicate-hint">Bereits vorhanden: {duplicate.name}</span>:'Neu'}</td></tr>;
     })}</tbody></table></div>}
     {results.length===0&&!busy&&<p className="muted">Noch keine Funde. Ein /23 kann abhängig von Portanzahl und Erreichbarkeit einige Sekunden dauern.</p>}
     {results.some(result => (types[scanKey(result)]??result.suggestedType)==='ssh' && selected.has(scanKey(result))) && <div className="security-warning">Automatisch angelegte SSH-Ressourcen haben zunächst keine Host-Key-Prüfung. Den Host-Key anschließend in der Ressource verifizieren und hinterlegen.</div>}

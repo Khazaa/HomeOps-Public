@@ -24,9 +24,9 @@ afterEach(cleanup);
 test('shows DNS names, marks duplicates and saves selected discoveries',async()=>{
   render(<App/>);await screen.findByPlaceholderText('Suchen …');fireEvent.click(screen.getByRole('button',{name:/Netzwerk scannen/}));fireEvent.click(screen.getByRole('button',{name:'Scan starten'}));
   expect(await screen.findByText('router.lan')).toBeVisible();expect(screen.getByText('Bereits vorhanden: Router')).toBeVisible();
-  fireEvent.change(screen.getByLabelText('Benutzer für 192.168.1.11:22'),{target:{value:'root'}});fireEvent.click(screen.getByRole('button',{name:'Ausgewählte speichern'}));
+  fireEvent.change(screen.getByLabelText('Name für 192.168.1.11:22'),{target:{value:'Dockerhost'}});fireEvent.change(screen.getByLabelText('Benutzer für 192.168.1.11:22'),{target:{value:'root'}});fireEvent.click(screen.getByRole('button',{name:'Ausgewählte speichern'}));
   await waitFor(()=>expect(mocks.createCategory).toHaveBeenCalledWith(expect.stringMatching(/^Scan \d{2}\.\d{2}\.\d{4} \d{2}:\d{2}$/)));
-  expect(mocks.createResource).toHaveBeenCalledWith(expect.objectContaining({type:'ssh',name:'server.lan · SSH 22',categoryId:'scan-category',config:expect.objectContaining({host:'192.168.1.11',port:22,username:'root',verifyHostKey:false})}));
+  expect(mocks.createResource).toHaveBeenCalledWith(expect.objectContaining({type:'ssh',name:'Dockerhost',categoryId:'scan-category',config:expect.objectContaining({host:'192.168.1.11',port:22,username:'root',verifyHostKey:false})}));
 });
 
 test('shows scheduled discoveries on the dashboard and opens them for review',async()=>{

@@ -48,3 +48,21 @@ describe('resource category creation', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Speichern fehlgeschlagen');
   });
 });
+
+describe('RDP resource settings', () => {
+  it('stores the selected Windows keyboard layout', async () => {
+    render(<App />);
+    await screen.findByPlaceholderText('Suchen …');
+    fireEvent.click(screen.getByRole('button', { name: 'Ressource' }));
+    const dialog = screen.getByRole('heading', { name: 'Ressource anlegen' }).closest('form')!;
+    fireEvent.change(within(dialog).getByLabelText('Typ'), { target: { value: 'rdp' } });
+    fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: 'Windows Server' } });
+    fireEvent.change(within(dialog).getByLabelText('Host'), { target: { value: '192.168.23.10' } });
+    fireEvent.change(within(dialog).getByLabelText('Tastaturlayout auf dem Windows-Ziel'), { target: { value: 'de-de-qwertz' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Speichern' }));
+    await waitFor(() => expect(mocks.createResource).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'rdp',
+      config: expect.objectContaining({ keyboardLayout: 'de-de-qwertz' })
+    })));
+  });
+});

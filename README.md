@@ -119,7 +119,7 @@ Text aus der lokalen Zwischenablage kann in verbundenen SSH- und RDP-Tabs mit `S
 
 ### RDP
 
-RDP unterstützt Benutzername, Passwort, Domäne und unterschiedliche Sicherheitsmodi. Die Zertifikatsprüfung ist standardmäßig aktiv.
+RDP unterstützt Benutzername, Passwort, Domäne, unterschiedliche Sicherheitsmodi und das Tastaturlayout der Windows-Sitzung. Das gewählte Layout wird als Guacamole-`server-layout` an die Verbindung übergeben und gilt nach dem Neuverbinden. Die Zertifikatsprüfung ist standardmäßig aktiv.
 
 Bei allen drei Ressourcentypen kann ein vorhandenes Credential gewählt oder direkt im Ressourcendialog neu angelegt werden. Secrets lassen sich alternativ erst beim Verbindungsaufbau eingeben.
 

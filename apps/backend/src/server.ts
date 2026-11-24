@@ -16,6 +16,7 @@ import { loadConfig } from './config.js';
 import { createDb, migrate } from './db.js';
 import { decryptSecret, encryptSecret, isSafeHost, randomToken, sha256 } from './security.js';
 import { scanPrivateNetwork } from './network-scan.js';
+import { applyRdpSettings, RDP_KEYBOARD_LAYOUTS } from './remote-settings.js';
 import { buildProxyTarget, proxyBasePath, requestBasicAuthTarget, rewriteProxyCss, rewriteProxyHtml, rewriteProxyLocation } from './web-proxy.js';
 
 const config = loadConfig();
@@ -33,7 +34,7 @@ const baseResource = { name: z.string().min(1).max(120), notes:z.string().max(40
 const resourceInput = z.discriminatedUnion('type', [
   z.object({ ...baseResource, type: z.literal('web'), config: z.object({ url: z.string().url().refine(v => { const url=new URL(v);return ['http:','https:'].includes(url.protocol)&&!url.username&&!url.password; }), mode: z.enum(['embedded','external','auto']).default('auto'), authType:z.enum(['none','basic']).default('none'), sandbox: z.string().default('allow-forms allow-modals allow-popups allow-scripts allow-same-origin') }) }),
   z.object({ ...baseResource, type: z.literal('ssh'), config: z.object({ host: z.string().refine(isSafeHost), port: z.number().int().min(1).max(65535).default(22), username: z.string().min(1).max(128), authType: z.enum(['password','private_key']).default('password'), verifyHostKey: z.boolean().default(true), hostKeyFingerprint: z.string().max(512).default('') }).superRefine((value,ctx)=>{if(value.verifyHostKey&&value.hostKeyFingerprint.length<16)ctx.addIssue({code:'custom',path:['hostKeyFingerprint'],message:'SSH host key is required when verification is enabled'});}) }),
-  z.object({ ...baseResource, type: z.literal('rdp'), config: z.object({ host: z.string().refine(isSafeHost), port: z.number().int().min(1).max(65535).default(3389), username: z.string().max(128).default(''), domain: z.string().max(128).optional(), security: z.enum(['any','nla','tls','rdp']).default('nla'), ignoreCertificate: z.boolean().default(false) }) })
+  z.object({ ...baseResource, type: z.literal('rdp'), config: z.object({ host: z.string().refine(isSafeHost), port: z.number().int().min(1).max(65535).default(3389), username: z.string().max(128).default(''), domain: z.string().max(128).optional(), security: z.enum(['any','nla','tls','rdp']).default('nla'), keyboardLayout: z.enum(RDP_KEYBOARD_LAYOUTS).default('en-us-qwerty'), ignoreCertificate: z.boolean().default(false) }) })
 ]);
 const resourceUpdate = z.object({ name:z.string().min(1).max(120), notes:z.string().max(4000), tags:z.array(z.string().trim().min(1).max(40)).max(20), categoryId:z.string().uuid().nullable(), icon:z.string().max(50), position:z.number().int().min(0), enabled:z.boolean(), secret:z.string().min(1).max(16384), credentialId:z.string().uuid().nullable(), config:z.record(z.string(),z.unknown()) }).partial();
 const credentialInput=z.object({name:z.string().trim().min(1).max(120),username:z.string().trim().min(1).max(128),kind:z.enum(['password','private_key']),secret:z.string().min(1).max(16384),expiresAt:z.string().datetime().nullable().default(null)});
@@ -205,7 +206,7 @@ app.post('/api/v1/resources/:id/connect', { preHandler: [authenticate, requireCs
     if(!secret&&resource.secret_id){const row=(await db.query('SELECT payload FROM secrets WHERE id=$1 AND owner_id=$2',[resource.secret_id,resource.owner_id])).rows[0]; if(row) secret=decryptSecret(row.payload,config.MASTER_KEY);}
     if(!secret) throw app.httpErrors.badRequest('CREDENTIAL_REQUIRED');
     const c=resource.config; const settings:Record<string,unknown>={hostname:c.host,port:String(c.port),username:credentialUsername??c.username,password:secret,'ignore-cert':false,width:body.width,height:body.height,dpi:96,audio:['audio/L16'],image:['image/png','image/jpeg'],timezone:'Europe/Berlin'};
-    if(resource.type==='rdp'){settings.domain=c.domain??'';settings.security=c.security;settings['ignore-cert']=c.ignoreCertificate===true;settings['resize-method']='display-update';}
+    if(resource.type==='rdp')applyRdpSettings(settings,c);
     if(resource.type==='ssh'){if(c.verifyHostKey!==false&&c.hostKeyFingerprint)settings['host-key']=c.hostKeyFingerprint;if(c.authType==='private_key'){delete settings.password;settings['private-key']=secret;}}
     const audit=(await db.query('INSERT INTO connection_audit(user_id,resource_id,resource_name,protocol,ok,code) VALUES($1,$2,$3,$4,false,$5) RETURNING id',[request.authUser!.id,resource.id,resource.name,resource.type,'TICKET_ISSUED'])).rows[0];
     const nonce=randomToken(18);unusedTickets.add(nonce);setTimeout(()=>unusedTickets.delete(nonce),31_000).unref();

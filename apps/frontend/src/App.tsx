@@ -137,7 +137,7 @@ export function App() {
   }, [tabMenu]);
   useEffect(() => {
     if (!resourceContextMenu) return;
-    const closeMenu = (event: PointerEvent) => { if (!(event.target as Element).closest('.resource-context-menu')) setResourceContextMenu(null); };
+    const closeMenu = (event: PointerEvent) => { if (!(event.target as Element).closest('.resource-context-menu,.resource-menu-trigger')) setResourceContextMenu(null); };
     const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setResourceContextMenu(null); };
     document.addEventListener('pointerdown', closeMenu);
     document.addEventListener('keydown', closeOnEscape);
@@ -826,6 +826,7 @@ function ResourceEditor({ resource, categories, credentials, onCancel, onSaved }
   const [authType, setAuthType] = useState(String(resource?.config.authType ?? 'password'));
   const [domain, setDomain] = useState(String(resource?.config.domain ?? ''));
   const [security, setSecurity] = useState(String(resource?.config.security ?? 'nla'));
+  const [keyboardLayout, setKeyboardLayout] = useState(String(resource?.config.keyboardLayout ?? 'en-us-qwerty'));
   const [ignoreCertificate, setIgnoreCertificate] = useState(resource?.config.ignoreCertificate === true);
   const [mode, setMode] = useState(String(resource?.config.mode ?? 'auto'));
   const [webAuthType, setWebAuthType] = useState(String(resource?.config.authType ?? 'none'));
@@ -852,7 +853,7 @@ function ResourceEditor({ resource, categories, credentials, onCancel, onSaved }
         ? { url: target, mode, authType: webAuthType, sandbox: String(resource?.config.sandbox ?? 'allow-forms allow-modals allow-popups allow-scripts allow-same-origin') }
         : type === 'ssh'
           ? { host: target, port: Number(port), username: effectiveUsername, authType, verifyHostKey, hostKeyFingerprint: verifyHostKey ? hostKey : '' }
-          : { host: target, port: Number(port), username: effectiveUsername, domain: domain || undefined, security, ignoreCertificate };
+          : { host: target, port: Number(port), username: effectiveUsername, domain: domain || undefined, security, keyboardLayout, ignoreCertificate };
       const parsedTags = [...new Set(tags.split(',').map(tag => tag.trim()).filter(Boolean))];
       if (creatingCategory) {
         const created = await api.createCategory(newCategoryName.trim());
@@ -924,6 +925,8 @@ function ResourceEditor({ resource, categories, credentials, onCancel, onSaved }
       </> : <>
         <label>Domäne (optional)<input value={domain} onChange={event => setDomain(event.target.value)} /></label>
         <label>RDP-Sicherheit<select value={security} onChange={event => setSecurity(event.target.value)}><option value="nla">NLA</option><option value="tls">TLS</option><option value="rdp">RDP</option><option value="any">Aushandeln</option></select></label>
+        <label>Tastaturlayout auf dem Windows-Ziel<select value={keyboardLayout} onChange={event => setKeyboardLayout(event.target.value)}><option value="de-de-qwertz">Deutsch (Deutschland) – QWERTZ</option><option value="de-ch-qwertz">Deutsch (Schweiz) – QWERTZ</option><option value="en-gb-qwerty">Englisch (Großbritannien) – QWERTY</option><option value="en-us-qwerty">Englisch (USA) – QWERTY</option><option value="fr-fr-azerty">Französisch – AZERTY</option><option value="fr-be-azerty">Französisch (Belgien) – AZERTY</option><option value="fr-ch-qwertz">Französisch (Schweiz) – QWERTZ</option><option value="hu-hu-qwertz">Ungarisch – QWERTZ</option><option value="it-it-qwerty">Italienisch – QWERTY</option><option value="ja-jp-qwerty">Japanisch – QWERTY</option><option value="no-no-qwerty">Norwegisch – QWERTY</option><option value="pt-br-qwerty">Portugiesisch (Brasilien) – QWERTY</option><option value="es-es-qwerty">Spanisch – QWERTY</option><option value="es-latam-qwerty">Spanisch (Lateinamerika) – QWERTY</option><option value="sv-se-qwerty">Schwedisch – QWERTY</option><option value="tr-tr-qwerty">Türkisch – QWERTY</option><option value="failsafe">Failsafe – Unicode (Kurzbefehle eingeschränkt)</option></select></label>
+        <div className="security-info">Das Layout muss dem in der Windows-Sitzung verwendeten Tastaturlayout entsprechen. Änderungen gelten nach dem Neuverbinden.</div>
         <label className="checkbox"><input type="checkbox" checked={ignoreCertificate} onChange={event => setIgnoreCertificate(event.target.checked)} /> Zertifikatsprüfung für diese Ressource ausnahmsweise deaktivieren</label>
       </>}
       <label>Globale Zugangsdaten<select value={creatingCredential ? '__new__' : credentialId} onChange={event => { const id = event.target.value; if (id === '__new__') { setCreatingCredential(true); if (!newCredentialName) setNewCredentialName(`${name || type.toUpperCase()} · ${authType === 'private_key' ? 'Private Key' : 'Zugang'}`); } else { setCreatingCredential(false); setNewCredentialSecret(''); setCredentialId(id); const selected = credentials.find(credential => credential.id === id); if (selected) setUsername(selected.username); } }}><option value="">Keine / ressourceneigen</option><option value="__new__">＋ Neu anlegen …</option><optgroup label="Vorhandene Credentials">{credentials.filter(credential => credential.kind === (type === 'ssh' && authType === 'private_key' ? 'private_key' : 'password') && (credential.id === credentialId || !credential.expiresAt || new Date(credential.expiresAt) > new Date())).map(credential => <option key={credential.id} value={credential.id}>{credential.name}{credential.expiresAt && new Date(credential.expiresAt) <= new Date() ? ' (abgelaufen)' : ''}</option>)}</optgroup></select></label>

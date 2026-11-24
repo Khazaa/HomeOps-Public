@@ -12,6 +12,9 @@ HomeOps Hub bündelt Weboberflächen, SSH-Terminals und RDP-Desktops in einer ge
 - Direkte Anlage und Zuweisung neuer Gruppen im Ressourcendialog
 - Netzwerkscanner für private IPv4-Netze bis `/23` mit Standard- und benutzerdefinierten Ports, Reverse-DNS-Namen, Duplikaterkennung, frei benennbaren Funden und selektiver Übernahme in eine Gruppe `Scan DD.MM.YYYY HH:mm`
 - Optionaler täglicher Nacht-Scan im Container; neue, noch nicht eingetragene Systeme erscheinen zur bestätigten Übernahme auf der Übersicht
+- SSH-Funde können ohne Benutzer übernommen und später vervollständigt werden; ohne Benutzer blockiert HomeOps den Verbindungsaufbau mit einem klaren Hinweis
+- Einblendbare SSH-/RDP-Verbindungsdiagnose mit bereinigtem Text-Download ohne Secrets, Private Keys oder Tokens
+- Ressourcen-Vorschau mit Typ, Ziel, Benutzer, Tags und Beschreibung direkt in der Seitenleiste
 - Verschlüsselte Speicherung von Secrets mit AES-256-GCM
 - Mehrbenutzerbetrieb mit ressourcenbezogenen Freigaben
 - Progressive Web App und responsive Oberfläche

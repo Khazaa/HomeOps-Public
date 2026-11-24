@@ -28,3 +28,9 @@ export function applyRdpSettings(settings: Record<string, unknown>, config: Reco
     : 'en-us-qwerty';
   return settings;
 }
+
+export function remoteUsername(type: string, credentialUsername: string | undefined, configuredUsername: unknown) {
+  const username = (credentialUsername ?? String(configuredUsername ?? '')).trim();
+  if (type === 'ssh' && !username) throw new Error('SSH_USERNAME_REQUIRED');
+  return username;
+}

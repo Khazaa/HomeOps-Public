@@ -53,6 +53,7 @@ export function App() {
   const [tabRevisions, setTabRevisions] = useState<Record<string, number>>({});
   const [tabMenu, setTabMenu] = useState<{ tab: Tab; x: number; y: number } | null>(null);
   const [resourceContextMenu, setResourceContextMenu] = useState<{ resource: Resource; x: number; y: number } | null>(null);
+  const [resourcePreview, setResourcePreview] = useState<{ resource: Resource; x: number; y: number } | null>(null);
   const [draggingTab, setDraggingTab] = useState<string | null>(null);
   const [draggingResource, setDraggingResource] = useState<string | null>(null);
   const [resourceDropTarget, setResourceDropTarget] = useState<string | null>(null);
@@ -456,7 +457,8 @@ export function App() {
   </>;
   const resourceRow = (resource: Resource) => {
     const groupKey = resource.categoryId ?? 'uncategorized';
-    return <div className={`resource${draggingResource === resource.id ? ' dragging' : ''}`} key={resource.id} draggable title="In eine andere Gruppe ziehen" onContextMenu={event => {
+    const showPreview = (element: HTMLElement) => { const rect=element.getBoundingClientRect();setResourcePreview({resource,x:Math.max(8,Math.min(rect.right+8,window.innerWidth-348)),y:Math.max(8,Math.min(rect.top,window.innerHeight-260))}); };
+    return <div className={`resource${draggingResource === resource.id ? ' dragging' : ''}`} key={resource.id} draggable onPointerEnter={event=>showPreview(event.currentTarget)} onPointerLeave={()=>setResourcePreview(null)} onFocus={event=>showPreview(event.currentTarget)} onBlur={event=>{if(!event.currentTarget.contains(event.relatedTarget))setResourcePreview(null);}} onContextMenu={event => {
       event.preventDefault();
       closeResourceActions();
       openResourceActions(resource, { top: event.clientY, right: event.clientX, bottom: event.clientY });
@@ -573,6 +575,7 @@ export function App() {
       <button role="menuitem" onClick={() => { const tab = tabMenu.tab; setTabMenu(null); close(tab); }}><Icon name="close" /> Tab schließen</button>
     </div>}
     {resourceContextMenu && <div className="resource-context-menu" role="menu" aria-label={`Aktionen für ${resourceContextMenu.resource.name}`} style={{ left: resourceContextMenu.x, top: resourceContextMenu.y }}>{resourceActions(resourceContextMenu.resource)}</div>}
+    {resourcePreview && <ResourcePreview resource={resourcePreview.resource} credential={credentials.find(entry=>entry.id===resourcePreview.resource.credentialId)} x={resourcePreview.x} y={resourcePreview.y} />}
     {editor && <ResourceEditor key={editor === 'new' ? 'new' : editor.id} resource={editor === 'new' ? undefined : editor} categories={categories} credentials={credentials} onCancel={() => setEditor(null)} onSaved={async () => { setEditor(null); await refresh(); }} />}
     {scannerOpen && <NetworkScanner resources={resources} initialResults={scannerResults} onClose={() => setScannerOpen(false)} onSaved={refresh} />}
     {managingCredentials && <CredentialManager credentials={credentials} resources={resources} onCancel={() => setManagingCredentials(false)} onChanged={refresh} />}
@@ -588,6 +591,12 @@ export function App() {
     </form></div>}
     <div className="toast" role="status" aria-live="polite">{notice}</div>
   </div>;
+}
+
+function ResourcePreview({ resource, credential, x, y }: { resource: Resource; credential?: Credential; x: number; y: number }) {
+  const target = resource.type === 'web' ? String(resource.config.url ?? '–') : `${String(resource.config.host ?? '–')}:${String(resource.config.port ?? '–')}`;
+  const username = credential?.username || String(resource.config.username ?? '').trim() || 'Nicht hinterlegt';
+  return <aside className="resource-preview" role="tooltip" style={{ left: x, top: y }}><strong>{resource.name}</strong><dl><dt>Typ</dt><dd>{resource.type.toUpperCase()}</dd><dt>Ziel</dt><dd>{target}</dd>{resource.type !== 'web' || credential ? <><dt>Benutzer</dt><dd>{username}</dd></> : null}<dt>Tags</dt><dd>{resource.tags.length ? resource.tags.join(', ') : 'Keine'}</dd><dt>Beschreibung</dt><dd>{resource.notes.trim() || 'Keine Beschreibung'}</dd></dl></aside>;
 }
 
 function Dashboard({ resources, favorites, recent, credentials, discoveries, status, openTabs, onOpen, onReviewDiscoveries }: { resources: Resource[]; favorites: Resource[]; recent: Resource[]; credentials: Credential[]; discoveries: NetworkScanResult[]; status: Record<string, { state: 'checking' | 'online' | 'offline'; message: string }>; openTabs: number; onOpen: (resource: Resource) => void; onReviewDiscoveries: () => void }) {
@@ -863,7 +872,6 @@ function NetworkScanner({ resources, initialResults, onClose, onSaved }: { resou
         const key = scanKey(result); const type = types[key] ?? result.suggestedType; const username = (usernames[key] ?? '').trim(); const name = (names[key] ?? defaultScanName(result, type)).trim();
         if (!name) throw new Error(`Name für ${result.ip}:${result.port} fehlt.`);
         if (name.length > 120) throw new Error(`Name für ${result.ip}:${result.port} ist zu lang.`);
-        if (type === 'ssh' && !username) throw new Error(`SSH-Benutzer für ${result.ip}:${result.port} fehlt.`);
         return { result, type, username, name };
       });
       const now = new Date(); const pad = (value: number) => String(value).padStart(2, '0');
@@ -899,7 +907,7 @@ function NetworkScanner({ resources, initialResults, onClose, onSaved }: { resou
     <section className="scanner-schedule"><div><h3>Automatischer Nacht-Scan</h3><p className="muted">Läuft täglich serverseitig – auch wenn kein Browser geöffnet ist. Gefundene Systeme werden erst nach deiner Bestätigung angelegt.</p></div><label className="checkbox"><input type="checkbox" checked={scheduleEnabled} onChange={event => setScheduleEnabled(event.target.checked)} /> Täglich ausführen</label><label>Uhrzeit<input type="time" value={runTime} onChange={event => setRunTime(event.target.value)} /></label><label>Zeitzone<input value={timezone} onChange={event => setTimezone(event.target.value)} placeholder="Europe/Berlin" /></label><button type="button" disabled={busy} onClick={() => void saveSchedule()}>Zeitplan speichern</button>{scheduleStatus.lastRunAt && <small>Letzter Lauf: {new Date(scheduleStatus.lastRunAt).toLocaleString('de-DE')}{scheduleStatus.lastError ? ` · Fehler: ${scheduleStatus.lastError}` : ''}</small>}</section>
     {results.length > 0 && <div className="scanner-results"><table><thead><tr><th /><th>Adresse</th><th>DNS-Name</th><th>Port</th><th>Name der Ressource</th><th>Typ</th><th>Benutzer</th><th>Status</th></tr></thead><tbody>{results.map(result => {
       const key=scanKey(result); const type=types[key]??result.suggestedType; const duplicate=findDuplicateResource(resources,result,type);
-      return <tr key={key}><td><input aria-label={`${result.ip}:${result.port} auswählen`} type="checkbox" checked={selected.has(key)&&!duplicate} disabled={Boolean(duplicate)} onChange={event => setSelected(current => { const next=new Set(current); if(event.target.checked)next.add(key);else next.delete(key);return next; })} /></td><td>{result.ip}</td><td>{result.hostname??'–'}</td><td>{result.port}{result.service==='unknown'?' (offen)':''}</td><td><input aria-label={`Name für ${key}`} maxLength={120} value={names[key]??defaultScanName(result,type)} disabled={Boolean(duplicate)} onChange={event=>setNames(current=>({...current,[key]:event.target.value}))} /></td><td><select aria-label={`Typ für ${key}`} value={type} onChange={event=>{const nextType=event.target.value as ResourceType;setTypes(current=>({...current,[key]:nextType}));setNames(current=>current[key]===defaultScanName(result,type)?{...current,[key]:defaultScanName(result,nextType)}:current);}}><option value="web">Web</option><option value="ssh">SSH</option><option value="rdp">RDP</option></select></td><td>{type==='web'?'–':<input aria-label={`Benutzer für ${key}`} value={usernames[key]??''} onChange={event=>setUsernames(current=>({...current,[key]:event.target.value}))} placeholder={type==='ssh'?'erforderlich':'optional'} />}</td><td>{duplicate?<span className="duplicate-hint">Bereits vorhanden: {duplicate.name}</span>:'Neu'}</td></tr>;
+      return <tr key={key}><td><input aria-label={`${result.ip}:${result.port} auswählen`} type="checkbox" checked={selected.has(key)&&!duplicate} disabled={Boolean(duplicate)} onChange={event => setSelected(current => { const next=new Set(current); if(event.target.checked)next.add(key);else next.delete(key);return next; })} /></td><td>{result.ip}</td><td>{result.hostname??'–'}</td><td>{result.port}{result.service==='unknown'?' (offen)':''}</td><td><input aria-label={`Name für ${key}`} maxLength={120} value={names[key]??defaultScanName(result,type)} disabled={Boolean(duplicate)} onChange={event=>setNames(current=>({...current,[key]:event.target.value}))} /></td><td><select aria-label={`Typ für ${key}`} value={type} onChange={event=>{const nextType=event.target.value as ResourceType;setTypes(current=>({...current,[key]:nextType}));setNames(current=>current[key]===defaultScanName(result,type)?{...current,[key]:defaultScanName(result,nextType)}:current);}}><option value="web">Web</option><option value="ssh">SSH</option><option value="rdp">RDP</option></select></td><td>{type==='web'?'–':<input aria-label={`Benutzer für ${key}`} value={usernames[key]??''} onChange={event=>setUsernames(current=>({...current,[key]:event.target.value}))} placeholder="optional" />}</td><td>{duplicate?<span className="duplicate-hint">Bereits vorhanden: {duplicate.name}</span>:'Neu'}</td></tr>;
     })}</tbody></table></div>}
     {results.length===0&&!busy&&<p className="muted">Noch keine Funde. Ein /23 kann abhängig von Portanzahl und Erreichbarkeit einige Sekunden dauern.</p>}
     {results.some(result => (types[scanKey(result)]??result.suggestedType)==='ssh' && selected.has(scanKey(result))) && <div className="security-warning">Automatisch angelegte SSH-Ressourcen haben zunächst keine Host-Key-Prüfung. Den Host-Key anschließend in der Ressource verifizieren und hinterlegen.</div>}
@@ -1055,7 +1063,8 @@ function ResourceEditor({ resource, categories, credentials, onCancel, onSaved }
     </>}
     {type !== 'web' && <>
       <label>Port<input required type="number" min="1" max="65535" value={port} onChange={event => setPort(event.target.value)} /></label>
-      <label>Benutzer<input required={type === 'ssh' && !creatingCredential} disabled={Boolean(credentialId) || creatingCredential} value={username} onChange={event => setUsername(event.target.value)} /></label>
+      <label>Benutzer (optional)<input disabled={Boolean(credentialId) || creatingCredential} value={username} onChange={event => setUsername(event.target.value)} /></label>
+      {type === 'ssh' && !username.trim() && !credentialId && !creatingCredential && <div className="security-info">Die Ressource kann unvollständig gespeichert werden. Vor der ersten SSH-Verbindung muss hier oder über globale Zugangsdaten ein Benutzer hinterlegt werden.</div>}
       {type === 'ssh' ? <>
         <label>Authentifizierung<select value={authType} onChange={event => { setAuthType(event.target.value); setCredentialId(''); setCreatingCredential(false); setNewCredentialSecret(''); }}><option value="password">Passwort</option><option value="private_key">Private Key</option></select></label>
         <label className="checkbox"><input type="checkbox" checked={verifyHostKey} onChange={event => setVerifyHostKey(event.target.checked)} /> SSH Host-Key prüfen (empfohlen)</label>

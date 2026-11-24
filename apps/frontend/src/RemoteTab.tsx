@@ -2,11 +2,13 @@ import { memo, useEffect, useRef, useState } from 'react';
 import Guacamole from 'guacamole-common-js';
 import { api } from './api';
 import { sendClipboardText } from './remoteClipboard';
+import { diagnosticFilename, formatRemoteDiagnostics, type RemoteDiagnosticEntry } from './remoteDiagnostics';
 import { RemoteKeyboardController } from './remoteKeyboard';
 import { sendRemoteSize } from './remoteSize';
-import type { Resource } from './types';
+import type { AuditEvent, Resource } from './types';
 
 type State = 'disconnected' | 'connecting' | 'connected' | 'error';
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || 'development';
 
 export const RemoteTab = memo(function RemoteTab({ resource, active }: { resource: Resource; active: boolean }) {
   const remote = useRef<HTMLDivElement>(null);
@@ -19,6 +21,23 @@ export const RemoteTab = memo(function RemoteTab({ resource, active }: { resourc
   const [error, setError] = useState('');
   const [secret, setSecret] = useState('');
   const [fullscreen, setFullscreen] = useState(false);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<RemoteDiagnosticEntry[]>([]);
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
+  const missingSshUsername = resource.type === 'ssh' && !resource.credentialId && !String(resource.config.username ?? '').trim();
+  const recordDiagnostic = (level: RemoteDiagnosticEntry['level'], message: string, details?: Record<string, unknown>) => setDiagnostics(current => [...current.slice(-99), { at: new Date().toISOString(), level, message, details }]);
+  const loadAudit = async () => {
+    try { setAuditEvents((await api.audit()).events.filter(event => event.resourceId === resource.id).slice(0, 20)); }
+    catch (reason) { recordDiagnostic('error', 'Backend-Audit konnte nicht geladen werden', { message: reason instanceof Error ? reason.message : 'Unbekannter Fehler' }); }
+  };
+  const downloadDiagnostics = async () => {
+    let latestAudit = auditEvents;
+    try { latestAudit = (await api.audit()).events.filter(event => event.resourceId === resource.id).slice(0, 20); setAuditEvents(latestAudit); }
+    catch (reason) { recordDiagnostic('error', 'Backend-Audit konnte vor dem Download nicht geladen werden', { message: reason instanceof Error ? reason.message : 'Unbekannter Fehler' }); }
+    const text = formatRemoteDiagnostics(resource, diagnostics, latestAudit, APP_VERSION, navigator.userAgent);
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+    const link = document.createElement('a'); link.href = url; link.download = diagnosticFilename(resource); link.click(); URL.revokeObjectURL(url);
+  };
 
   const fitDisplay = () => {
     if (!host.current || !client.current) return;
@@ -38,6 +57,7 @@ export const RemoteTab = memo(function RemoteTab({ resource, active }: { resourc
   };
 
   const disconnect = () => {
+    recordDiagnostic('info', 'Verbindung manuell getrennt');
     releaseInput();
     client.current?.disconnect();
     client.current = null;
@@ -47,21 +67,27 @@ export const RemoteTab = memo(function RemoteTab({ resource, active }: { resourc
 
   const connect = async () => {
     if (!host.current) return;
+    if (missingSshUsername) { recordDiagnostic('error', 'SSH-Verbindung blockiert: Benutzername fehlt'); return; }
     setState('connecting');
     setError('');
+    recordDiagnostic('info', 'Verbindungsaufbau gestartet', { protocol: resource.type, host: resource.config.host, port: resource.config.port, credential: resource.credentialId ? 'global' : resource.hasLocalSecret ? 'local' : 'prompt' });
     try {
       const rect = host.current.getBoundingClientRect();
       const ticket = await api.connect(resource.id, secret || undefined, Math.max(640, Math.floor(rect.width)), Math.max(400, Math.floor(rect.height)));
+      recordDiagnostic('info', 'Backend-Ticket erhalten', { protocol: ticket.protocol, expiresIn: ticket.expiresIn });
       const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
       const tunnel = new Guacamole.WebSocketTunnel(`${scheme}://${location.host}/api/v1/tunnel`);
+      tunnel.onerror = (status: any) => { recordDiagnostic('error', 'WebSocket-Tunnel meldet einen Fehler', { code: status?.code, message: status?.message }); void loadAudit(); };
       const guac = new Guacamole.Client(tunnel);
       const display = guac.getDisplay();
       const displayElement = display.getElement();
       client.current = guac;
       host.current.replaceChildren(displayElement);
       display.onresize = () => requestAnimationFrame(fitDisplay);
-      guac.onerror = (status: any) => { setError(status?.message ?? 'Remote-Verbindungsfehler'); setState('error'); };
+      guac.onerror = (status: any) => { const message = status?.message ?? 'Remote-Verbindungsfehler'; recordDiagnostic('error', 'Guacamole meldet einen Fehler', { code: status?.code, message }); setError(message); setState('error'); void loadAudit(); };
       guac.onstatechange = (nextState: number) => {
+        const labels: Record<number,string> = { 0: 'Leerlauf', 1: 'Verbinden', 2: 'Warten', 3: 'Verbunden', 4: 'Trennen', 5: 'Getrennt' };
+        recordDiagnostic('info', `Guacamole-Status: ${labels[nextState] ?? nextState}`);
         if (nextState === 3) { setState('connected'); requestAnimationFrame(fitDisplay); }
         if (nextState === 5) setState('disconnected');
       };
@@ -74,8 +100,11 @@ export const RemoteTab = memo(function RemoteTab({ resource, active }: { resourc
       guac.connect(`token=${encodeURIComponent(ticket.token)}`);
       setSecret('');
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Verbindungsfehler');
+      const message = reason instanceof Error ? reason.message : 'Verbindungsfehler';
+      recordDiagnostic('error', 'Verbindungsaufbau fehlgeschlagen', { message });
+      setError(message);
       setState('error');
+      void loadAudit();
     }
   };
 
@@ -117,10 +146,14 @@ export const RemoteTab = memo(function RemoteTab({ resource, active }: { resourc
   return <div ref={remote} className="remote">
     <form className="viewer-toolbar" onSubmit={event => { event.preventDefault(); if (state !== 'connected') void connect(); }}>
       <span className={`status ${state}`}>{state === 'connected' ? 'Verbunden' : state === 'connecting' ? 'Verbinden …' : state === 'error' ? 'Fehler' : 'Getrennt'}</span>
-      {state !== 'connected' && <><input aria-label="Passwort oder Private Key" type="password" value={secret} onChange={event => setSecret(event.target.value)} placeholder={resource.hasSecret ? 'Gespeichertes Secret verwenden' : 'Passwort / Private Key'} /><button type="submit" disabled={state === 'connecting'}>{state === 'error' ? 'Erneut verbinden' : 'Verbinden'}</button></>}
+      {state !== 'connected' && <><input aria-label="Passwort oder Private Key" type="password" value={secret} disabled={missingSshUsername} onChange={event => setSecret(event.target.value)} placeholder={resource.hasSecret ? 'Gespeichertes Secret verwenden' : 'Passwort / Private Key'} /><button type="submit" disabled={state === 'connecting' || missingSshUsername}>{state === 'error' ? 'Erneut verbinden' : 'Verbinden'}</button></>}
       {state === 'connected' && <><span className="viewer-hint">Einfügen: Strg+V / Strg+Shift+V</span><button type="button" onClick={() => void (fullscreen ? document.exitFullscreen() : remote.current?.requestFullscreen())}>{fullscreen ? 'Vollbild beenden' : 'Vollbild'}</button><button type="button" onClick={disconnect}>Trennen</button></>}
+      <button type="button" onClick={() => { setDiagnosticsOpen(open => !open); if (!diagnosticsOpen) void loadAudit(); }}>{diagnosticsOpen ? 'Diagnose schließen' : 'Diagnose anzeigen'}</button>
+      <button type="button" onClick={() => void downloadDiagnostics()}>Protokoll herunterladen</button>
     </form>
+    {missingSshUsername && <div role="alert" className="error">SSH-Benutzer fehlt. Bitte die Ressource bearbeiten und einen Benutzer oder globale Zugangsdaten hinterlegen.</div>}
     {error && <div role="alert" className="error">{error}</div>}
+    {diagnosticsOpen && <section className="remote-diagnostics"><h3>Verbindungsdiagnose</h3><p className="muted">Browser-/Tunnelereignisse und Backend-Audit, ohne Secrets oder Sitzungstokens.</p><pre>{formatRemoteDiagnostics(resource, diagnostics, auditEvents, APP_VERSION, navigator.userAgent)}</pre></section>}
     <div ref={host} className="remote-display" tabIndex={0} onPointerDown={event => event.currentTarget.focus()} />
     <textarea ref={clipboardCapture} className="remote-clipboard-capture" aria-label="Remote-Zwischenablage" tabIndex={-1} />
   </div>;

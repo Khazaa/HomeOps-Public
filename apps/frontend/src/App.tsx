@@ -144,16 +144,6 @@ export function App() {
     return () => { document.removeEventListener('pointerdown', closeMenu); document.removeEventListener('keydown', closeOnEscape); };
   }, [resourceContextMenu]);
   useEffect(() => {
-    const keepOnlyClickedResourceMenu = (event: PointerEvent) => {
-      const clickedMenu = (event.target as Element).closest('details.resource-menu');
-      document.querySelectorAll<HTMLDetailsElement>('details.resource-menu[open]').forEach(menu => {
-        if (menu !== clickedMenu) menu.open = false;
-      });
-    };
-    document.addEventListener('pointerdown', keepOnlyClickedResourceMenu);
-    return () => document.removeEventListener('pointerdown', keepOnlyClickedResourceMenu);
-  }, []);
-  useEffect(() => {
     if (!accountMenuOpen) return;
     const closeOutside = (event: PointerEvent) => {
       if (!(event.target as Element).closest('.account-menu')) setAccountMenuOpen(false);
@@ -414,8 +404,17 @@ export function App() {
   const launcherResults = resources.filter(resource => resource.name.toLowerCase().includes(launcherQuery.trim().toLowerCase())).slice(0, 12);
   const availableTags = [...new Set(resources.flatMap(resource => resource.tags))].sort((left, right) => left.localeCompare(right, 'de', { sensitivity: 'base' }));
   const closeResourceActions = () => {
-    document.querySelectorAll<HTMLDetailsElement>('details.resource-menu[open]').forEach(menu => { menu.open = false; });
     setResourceContextMenu(null);
+  };
+  const openResourceActions = (resource: Resource, anchor: Pick<DOMRect, 'top' | 'right' | 'bottom'>) => {
+    const padding = 8;
+    const menuWidth = 224;
+    const menuHeight = 330;
+    const gap = 4;
+    const x = Math.max(padding, Math.min(anchor.right - menuWidth, window.innerWidth - menuWidth - padding));
+    const below = anchor.bottom + gap;
+    const y = below + menuHeight <= window.innerHeight - padding ? below : Math.max(padding, anchor.top - menuHeight - gap);
+    setResourceContextMenu({ resource, x, y });
   };
   const updateResourceTags = async (resource: Resource, tags: string[]) => {
     try {
@@ -451,7 +450,7 @@ export function App() {
     return <div className={`resource${draggingResource === resource.id ? ' dragging' : ''}`} key={resource.id} draggable title="In eine andere Gruppe ziehen" onContextMenu={event => {
       event.preventDefault();
       closeResourceActions();
-      setResourceContextMenu({ resource, x: Math.max(8, Math.min(event.clientX, window.innerWidth - 240)), y: Math.max(8, Math.min(event.clientY, window.innerHeight - 330)) });
+      openResourceActions(resource, { top: event.clientY, right: event.clientX, bottom: event.clientY });
     }} onDragStart={event => {
       setDraggingResource(resource.id);
       event.dataTransfer.effectAllowed = 'move';
@@ -462,12 +461,10 @@ export function App() {
       <button className="icon-button" title="Nach oben" aria-label="Nach oben" onClick={() => void move(resource, -1)}><Icon name="up" /></button>
       <button className="icon-button" title="Nach unten" aria-label="Nach unten" onClick={() => void move(resource, 1)}><Icon name="down" /></button>
     </div>}
-    <details className="resource-menu">
-      <summary title="Aktionen" aria-label="Aktionen"><Icon name="menu" /></summary>
-      <div className="resource-menu-popover">
-        {resourceActions(resource)}
-      </div>
-    </details>
+    <button className="resource-menu-trigger" type="button" title="Aktionen" aria-label={`Aktionen für ${resource.name}`} aria-haspopup="menu" aria-expanded={resourceContextMenu?.resource.id === resource.id} onClick={event => {
+      if (resourceContextMenu?.resource.id === resource.id) closeResourceActions();
+      else openResourceActions(resource, event.currentTarget.getBoundingClientRect());
+    }}><Icon name="menu" /></button>
   </div>;
   };
 

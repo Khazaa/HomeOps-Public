@@ -21,9 +21,11 @@ afterEach(cleanup);
 test('tests a saved credential and assigns it only after the remote connection succeeds',async()=>{
   render(<RemoteTab resource={resource} credentials={[credential]} active onResourceUpdated={mocks.onResourceUpdated}/>);
   fireEvent.change(screen.getByLabelText('Gespeicherte Zugangsdaten'),{target:{value:credential.id}});
-  fireEvent.click(screen.getByLabelText(/Bei erfolgreicher Verbindung dauerhaft/));
   fireEvent.click(screen.getByRole('button',{name:'Verbinden'}));
   await waitFor(()=>expect(mocks.connect).toHaveBeenCalledWith(resource.id,undefined,640,400,credential.id));
+  expect(mocks.updateResource).not.toHaveBeenCalled();
+  expect(await screen.findByRole('dialog',{name:'Credential dauerhaft zuordnen'})).toHaveTextContent('war erfolgreich');
+  fireEvent.click(screen.getByRole('button',{name:'Dauerhaft zuordnen'}));
   await waitFor(()=>expect(mocks.updateResource).toHaveBeenCalledWith(resource.id,{credentialId:credential.id}));
   expect(mocks.onResourceUpdated).toHaveBeenCalledOnce();
 });

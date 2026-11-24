@@ -25,11 +25,13 @@ export const RemoteTab = memo(function RemoteTab({ resource, credentials, active
   const [diagnostics, setDiagnostics] = useState<RemoteDiagnosticEntry[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [selectedCredentialId, setSelectedCredentialId] = useState(resource.credentialId ?? '');
-  const [assignCredentialOnSuccess, setAssignCredentialOnSuccess] = useState(false);
+  const [pendingCredentialId, setPendingCredentialId] = useState<string | null>(null);
+  const [assigningCredential, setAssigningCredential] = useState(false);
   const expectedCredentialKind: Credential['kind'] = resource.type === 'ssh' && resource.config.authType === 'private_key' ? 'private_key' : 'password';
   const compatibleCredentials = credentials.filter(credential => credential.kind === expectedCredentialKind && (credential.id === selectedCredentialId || !credential.expiresAt || new Date(credential.expiresAt) > new Date()));
   const temporaryCredentialId = selectedCredentialId && selectedCredentialId !== resource.credentialId ? selectedCredentialId : undefined;
   const missingSshUsername = resource.type === 'ssh' && !selectedCredentialId && !String(resource.config.username ?? '').trim();
+  const pendingCredential = credentials.find(credential => credential.id === pendingCredentialId);
   const recordDiagnostic = (level: RemoteDiagnosticEntry['level'], message: string, details?: Record<string, unknown>) => setDiagnostics(current => [...current.slice(-99), { at: new Date().toISOString(), level, message, details }]);
   const loadAudit = async () => {
     try { setAuditEvents((await api.audit()).events.filter(event => event.resourceId === resource.id).slice(0, 20)); }
@@ -42,6 +44,13 @@ export const RemoteTab = memo(function RemoteTab({ resource, credentials, active
     const text = formatRemoteDiagnostics(resource, diagnostics, latestAudit, APP_VERSION, navigator.userAgent);
     const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
     const link = document.createElement('a'); link.href = url; link.download = diagnosticFilename(resource); link.click(); URL.revokeObjectURL(url);
+  };
+  const assignPendingCredential = async () => {
+    if (!pendingCredentialId) return;
+    setAssigningCredential(true); setError('');
+    try { await api.updateResource(resource.id, { credentialId: pendingCredentialId }); recordDiagnostic('info', 'Credential dauerhaft an Ressource gespeichert'); setPendingCredentialId(null); await onResourceUpdated(); }
+    catch (reason) { const message=reason instanceof Error?reason.message:'Credential konnte nicht zugeordnet werden';recordDiagnostic('error','Credential konnte nicht zugeordnet werden',{message});setError(message); }
+    finally { setAssigningCredential(false); }
   };
 
   const fitDisplay = () => {
@@ -93,7 +102,7 @@ export const RemoteTab = memo(function RemoteTab({ resource, credentials, active
       guac.onstatechange = (nextState: number) => {
         const labels: Record<number,string> = { 0: 'Leerlauf', 1: 'Verbinden', 2: 'Warten', 3: 'Verbunden', 4: 'Trennen', 5: 'Getrennt' };
         recordDiagnostic('info', `Guacamole-Status: ${labels[nextState] ?? nextState}`);
-        if (nextState === 3) { setState('connected'); requestAnimationFrame(fitDisplay); if(assignCredentialOnSuccess&&temporaryCredentialId){void api.updateResource(resource.id,{credentialId:temporaryCredentialId}).then(async()=>{recordDiagnostic('info','Credential dauerhaft an Ressource gespeichert');setAssignCredentialOnSuccess(false);await onResourceUpdated();}).catch(reason=>recordDiagnostic('error','Credential konnte nicht zugeordnet werden',{message:reason instanceof Error?reason.message:'Unbekannter Fehler'}));} }
+        if (nextState === 3) { setState('connected'); requestAnimationFrame(fitDisplay); if(temporaryCredentialId)setPendingCredentialId(temporaryCredentialId); }
         if (nextState === 5) setState('disconnected');
       };
       const mouse = new Guacamole.Mouse(displayElement);
@@ -147,7 +156,7 @@ export const RemoteTab = memo(function RemoteTab({ resource, credentials, active
     document.addEventListener('paste', paste, true);
     return () => document.removeEventListener('paste', paste, true);
   }, [active, resource.type, state]);
-  useEffect(() => { setSelectedCredentialId(resource.credentialId ?? ''); setAssignCredentialOnSuccess(false); }, [resource.credentialId]);
+  useEffect(() => { setSelectedCredentialId(resource.credentialId ?? ''); setPendingCredentialId(null); }, [resource.credentialId]);
 
   return <div ref={remote} className="remote">
     <form className="viewer-toolbar" onSubmit={event => { event.preventDefault(); if (state !== 'connected') void connect(); }}>
@@ -157,7 +166,8 @@ export const RemoteTab = memo(function RemoteTab({ resource, credentials, active
       <button type="button" onClick={() => { setDiagnosticsOpen(open => !open); if (!diagnosticsOpen) void loadAudit(); }}>{diagnosticsOpen ? 'Diagnose schließen' : 'Diagnose anzeigen'}</button>
       <button type="button" onClick={() => void downloadDiagnostics()}>Protokoll herunterladen</button>
     </form>
-    {state !== 'connected' && <div className="remote-credential-picker"><label>Gespeicherte Zugangsdaten<select aria-label="Gespeicherte Zugangsdaten" value={selectedCredentialId} onChange={event=>{setSelectedCredentialId(event.target.value);setAssignCredentialOnSuccess(false);setError('');}}><option value="">Keine / Secret eingeben</option>{resource.credentialId&&!compatibleCredentials.some(entry=>entry.id===resource.credentialId)&&<option value={resource.credentialId}>Aktuell zugeordnetes Credential</option>}{compatibleCredentials.map(credential=><option key={credential.id} value={credential.id}>{credential.name} · {credential.username}</option>)}</select></label>{temporaryCredentialId&&<label className="checkbox"><input type="checkbox" checked={assignCredentialOnSuccess} onChange={event=>setAssignCredentialOnSuccess(event.target.checked)} /> Bei erfolgreicher Verbindung dauerhaft dieser Ressource zuordnen</label>}</div>}
+    {state !== 'connected' && <div className="remote-credential-picker"><label>Gespeicherte Zugangsdaten<select aria-label="Gespeicherte Zugangsdaten" value={selectedCredentialId} onChange={event=>{setSelectedCredentialId(event.target.value);setPendingCredentialId(null);setError('');}}><option value="">Keine / Secret eingeben</option>{resource.credentialId&&!compatibleCredentials.some(entry=>entry.id===resource.credentialId)&&<option value={resource.credentialId}>Aktuell zugeordnetes Credential</option>}{compatibleCredentials.map(credential=><option key={credential.id} value={credential.id}>{credential.name} · {credential.username}</option>)}</select></label></div>}
+    {state === 'connected' && pendingCredentialId && <div className="remote-credential-confirm" role="dialog" aria-label="Credential dauerhaft zuordnen"><span>Die Verbindung mit <strong>{pendingCredential?.name ?? 'dem ausgewählten Credential'}</strong> war erfolgreich. Dauerhaft dieser Ressource zuordnen?</span><button type="button" disabled={assigningCredential} onClick={()=>setPendingCredentialId(null)}>Nur diesmal verwenden</button><button className="primary" type="button" disabled={assigningCredential} onClick={()=>void assignPendingCredential()}>{assigningCredential?'Wird zugeordnet …':'Dauerhaft zuordnen'}</button></div>}
     {missingSshUsername && <div role="alert" className="error">SSH-Benutzer fehlt. Bitte die Ressource bearbeiten und einen Benutzer oder globale Zugangsdaten hinterlegen.</div>}
     {error && <div role="alert" className="error">{error}</div>}
     {diagnosticsOpen && <section className="remote-diagnostics"><h3>Verbindungsdiagnose</h3><p className="muted">Browser-/Tunnelereignisse und Backend-Audit, ohne Secrets oder Sitzungstokens.</p><pre>{formatRemoteDiagnostics(resource, diagnostics, auditEvents, APP_VERSION, navigator.userAgent)}</pre></section>}

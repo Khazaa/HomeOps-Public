@@ -11,22 +11,29 @@ const mocks=vi.hoisted(()=>({
   networkSchedule:vi.fn(),
   saveNetworkSchedule:vi.fn(),
   dismissNetworkDiscoveries:vi.fn(),
+  credential:{id:'credential-ssh',name:'Linux Admin',username:'root',kind:'password',expiresAt:null,createdAt:'2026-01-01',updatedAt:'2026-01-01'},
   existing:{ id:'existing',type:'web',name:'Router',notes:'Core-Switch im Technikraum',tags:['LAN','Kritisch'],categoryId:null,icon:'link',position:0,enabled:true,hasSecret:false,hasLocalSecret:false,credentialId:null,config:{url:'http://192.168.1.10',mode:'auto',authType:'none'} } as Resource
 }));
 vi.mock('../src/api',()=>({api:{
-  me:vi.fn().mockResolvedValue({user:{id:'user-a',username:'admin',role:'admin'}}),resources:vi.fn().mockResolvedValue([mocks.existing]),categories:vi.fn().mockResolvedValue([]),credentials:vi.fn().mockResolvedValue([]),preferences:vi.fn().mockResolvedValue({data:{}}),savePreferences:vi.fn().mockResolvedValue({data:{}}),testResource:vi.fn().mockResolvedValue({ok:true,code:'OK',message:'OK'}),scanNetwork:mocks.scanNetwork,createResource:mocks.createResource,createCategory:mocks.createCategory,deleteCategory:mocks.deleteCategory,networkDiscoveries:mocks.networkDiscoveries,networkSchedule:mocks.networkSchedule,saveNetworkSchedule:mocks.saveNetworkSchedule,dismissNetworkDiscoveries:mocks.dismissNetworkDiscoveries
+  me:vi.fn().mockResolvedValue({user:{id:'user-a',username:'admin',role:'admin'}}),resources:vi.fn().mockResolvedValue([mocks.existing]),categories:vi.fn().mockResolvedValue([]),credentials:vi.fn().mockResolvedValue([mocks.credential]),preferences:vi.fn().mockResolvedValue({data:{}}),savePreferences:vi.fn().mockResolvedValue({data:{}}),testResource:vi.fn().mockResolvedValue({ok:true,code:'OK',message:'OK'}),scanNetwork:mocks.scanNetwork,createResource:mocks.createResource,createCategory:mocks.createCategory,deleteCategory:mocks.deleteCategory,networkDiscoveries:mocks.networkDiscoveries,networkSchedule:mocks.networkSchedule,saveNetworkSchedule:mocks.saveNetworkSchedule,dismissNetworkDiscoveries:mocks.dismissNetworkDiscoveries
 }}));
 import { App } from '../src/App';
 
 beforeEach(()=>{localStorage.clear();mocks.createResource.mockReset().mockResolvedValue({id:'new'});mocks.createCategory.mockReset().mockResolvedValue({id:'scan-category',name:'Scan',icon:'folder',position:0});mocks.deleteCategory.mockReset().mockResolvedValue({ok:true});mocks.networkDiscoveries.mockReset().mockResolvedValue({results:[]});mocks.networkSchedule.mockReset().mockResolvedValue({enabled:false,cidr:'192.168.1.0/24',web:true,ssh:true,rdp:true,ports:[],runTime:'03:00',timezone:'Europe/Berlin',lastRunAt:null,lastError:null});mocks.saveNetworkSchedule.mockReset().mockImplementation(async value=>({...value,lastRunAt:null,lastError:null}));mocks.dismissNetworkDiscoveries.mockReset().mockResolvedValue({ok:true});mocks.scanNetwork.mockReset().mockResolvedValue({results:[{ip:'192.168.1.10',hostname:'router.lan',port:80,service:'web',suggestedType:'web',scheme:'http'},{ip:'192.168.1.11',hostname:'server.lan',port:22,service:'ssh',suggestedType:'ssh',scheme:'http'}]});Object.defineProperty(window,'matchMedia',{configurable:true,value:vi.fn().mockReturnValue({matches:false,addEventListener:vi.fn(),removeEventListener:vi.fn()})})});
 afterEach(cleanup);
 
+async function openScanner(){await screen.findByPlaceholderText('Suchen …');fireEvent.click(screen.getByRole('button',{name:'Benutzermenü'}));fireEvent.click(screen.getByRole('menuitem',{name:'Netzwerk scannen'}));}
+
 test('shows DNS names, marks duplicates and saves an incomplete SSH discovery without username',async()=>{
-  render(<App/>);await screen.findByPlaceholderText('Suchen …');fireEvent.click(screen.getByRole('button',{name:/Netzwerk scannen/}));fireEvent.click(screen.getByRole('button',{name:'Scan starten'}));
+  render(<App/>);await openScanner();fireEvent.click(screen.getByRole('button',{name:'Scan starten'}));
   expect(await screen.findByText('router.lan')).toBeVisible();expect(screen.getByText('Bereits vorhanden: Router')).toBeVisible();
   fireEvent.change(screen.getByLabelText('Name für 192.168.1.11:22'),{target:{value:'Dockerhost'}});fireEvent.click(screen.getByRole('button',{name:'Ausgewählte speichern'}));
   await waitFor(()=>expect(mocks.createCategory).toHaveBeenCalledWith(expect.stringMatching(/^Scan \d{2}\.\d{2}\.\d{4} \d{2}:\d{2}$/)));
   expect(mocks.createResource).toHaveBeenCalledWith(expect.objectContaining({type:'ssh',name:'Dockerhost',categoryId:'scan-category',config:expect.objectContaining({host:'192.168.1.11',port:22,username:'',verifyHostKey:false})}));
+});
+
+test('assigns a saved credential while importing an SSH discovery',async()=>{
+  render(<App/>);await openScanner();fireEvent.click(screen.getByRole('button',{name:'Scan starten'}));await screen.findByText('server.lan');fireEvent.change(screen.getByLabelText('Zugangsdaten für 192.168.1.11:22'),{target:{value:'credential-ssh'}});fireEvent.click(screen.getByRole('button',{name:'Ausgewählte speichern'}));await waitFor(()=>expect(mocks.createResource).toHaveBeenCalledWith(expect.objectContaining({type:'ssh',credentialId:'credential-ssh',config:expect.objectContaining({username:'root',authType:'password'})})));
 });
 
 test('shows scheduled discoveries on the dashboard and opens them for review',async()=>{

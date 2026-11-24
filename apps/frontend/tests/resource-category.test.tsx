@@ -39,6 +39,10 @@ async function fillResourceWithNewCategory() {
   await screen.findByPlaceholderText('Suchen …');
   fireEvent.click(screen.getByRole('button', { name: 'Ressource' }));
   const dialog = screen.getByRole('heading', { name: 'Ressource anlegen' }).closest('form')!;
+  expect(dialog).toHaveClass('resource-editor');
+  expect(dialog.querySelector(':scope > header')).toBeTruthy();
+  expect(dialog.querySelector(':scope > .resource-editor-body')).toBeTruthy();
+  expect(dialog.querySelector(':scope > footer.actions')).toBeTruthy();
   fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: 'ioBroker' } });
   fireEvent.change(within(dialog).getByLabelText('URL'), { target: { value: 'http://192.168.23.6:8081' } });
   fireEvent.change(within(dialog).getByLabelText('Gruppe'), { target: { value: '__new__' } });

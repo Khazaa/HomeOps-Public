@@ -514,6 +514,7 @@ export function App() {
           {accountMenuOpen && <div className="account-menu-popover" role="menu" aria-label="Benutzermenü">
             <label className="theme-control"><Icon name="theme" /><span>Theme</span><select aria-label="Theme" value={theme} onChange={event => { setTheme(event.target.value as Theme); setAccountMenuOpen(false); }}><option value="system">System</option><option value="dark">Dunkel</option><option value="light">Hell</option></select></label>
             <button role="menuitem" onClick={() => { setAccountMenuOpen(false); setManagingCredentials(true); }}>Zugangsdaten</button>
+            <button role="menuitem" onClick={() => { setAccountMenuOpen(false); setScannerResults([]); setScannerOpen(true); }}>Netzwerk scannen</button>
             <button role="menuitem" onClick={async () => { setAccountMenuOpen(false); try { setAuditEvents((await api.audit()).events); } catch (reason) { setNotice(reason instanceof Error ? reason.message : 'Verlauf konnte nicht geladen werden.'); } }}>Verbindungsverlauf</button>
             <button role="menuitem" onClick={() => { setAccountMenuOpen(false); setBackupOpen(true); }}>Backup &amp; Restore</button>
             <button role="menuitem" onClick={async () => { setAccountMenuOpen(false); if (installPrompt) { await installPrompt.prompt(); const choice = await installPrompt.userChoice; if (choice.outcome === 'accepted') setInstallPrompt(null); } else setNotice('Im Browser-Menü „App installieren“ bzw. „Zum Startbildschirm“ wählen.'); }}>App installieren</button>
@@ -533,7 +534,6 @@ export function App() {
         {resourceGroup('uncategorized', 'Ohne Kategorie')}
       </div>
       <div className="sidebar-footer">
-        <button className="text-icon-button" onClick={() => { setScannerResults([]); setScannerOpen(true); }}><Icon name="test" /> Netzwerk scannen</button>
         <button className="text-icon-button group-button" onClick={async () => { const name = prompt('Name der neuen Gruppe'); if (name) { await api.createCategory(name); await refresh(); } }}><Icon name="plus" /> Gruppe</button>
       </div>
     </aside>
@@ -563,7 +563,7 @@ export function App() {
         {tabs.map(tab => {
           const resource = resources.find(entry => entry.id === tab.resourceId);
           return resource ? <section className="tab-panel" hidden={tab.id !== active} key={`${tab.id}:${tabRevisions[tab.id] ?? 0}`}>
-            {resource.type === 'web' ? <WebTab resource={resource} /> : <RemoteTab resource={resource} active={tab.id === active} />}
+            {resource.type === 'web' ? <WebTab resource={resource} /> : <RemoteTab resource={resource} credentials={credentials} active={tab.id === active} onResourceUpdated={refresh} />}
           </section> : null;
         })}
       </div>
@@ -577,7 +577,7 @@ export function App() {
     {resourceContextMenu && <div className="resource-context-menu" role="menu" aria-label={`Aktionen für ${resourceContextMenu.resource.name}`} style={{ left: resourceContextMenu.x, top: resourceContextMenu.y }}>{resourceActions(resourceContextMenu.resource)}</div>}
     {resourcePreview && <ResourcePreview resource={resourcePreview.resource} credential={credentials.find(entry=>entry.id===resourcePreview.resource.credentialId)} x={resourcePreview.x} y={resourcePreview.y} />}
     {editor && <ResourceEditor key={editor === 'new' ? 'new' : editor.id} resource={editor === 'new' ? undefined : editor} categories={categories} credentials={credentials} onCancel={() => setEditor(null)} onSaved={async () => { setEditor(null); await refresh(); }} />}
-    {scannerOpen && <NetworkScanner resources={resources} initialResults={scannerResults} onClose={() => setScannerOpen(false)} onSaved={refresh} />}
+    {scannerOpen && <NetworkScanner resources={resources} credentials={credentials} initialResults={scannerResults} onClose={() => setScannerOpen(false)} onSaved={refresh} />}
     {managingCredentials && <CredentialManager credentials={credentials} resources={resources} onCancel={() => setManagingCredentials(false)} onChanged={refresh} />}
     {changingPassword && <ChangePassword onCancel={() => setChangingPassword(false)} onSaved={() => { setChangingPassword(false); setNotice('Kennwort geändert. Andere Sitzungen wurden abgemeldet.'); }} />}
     {auditEvents && <AuditHistory events={auditEvents} onClose={() => setAuditEvents(null)} />}
@@ -816,7 +816,7 @@ function findDuplicateResource(resources: Resource[], result: NetworkScanResult,
   });
 }
 
-function NetworkScanner({ resources, initialResults, onClose, onSaved }: { resources: Resource[]; initialResults: NetworkScanResult[]; onClose: () => void; onSaved: () => Promise<void> }) {
+function NetworkScanner({ resources, credentials, initialResults, onClose, onSaved }: { resources: Resource[]; credentials: Credential[]; initialResults: NetworkScanResult[]; onClose: () => void; onSaved: () => Promise<void> }) {
   const [cidr, setCidr] = useState('192.168.1.0/24');
   const [web, setWeb] = useState(true);
   const [ssh, setSsh] = useState(true);
@@ -826,6 +826,7 @@ function NetworkScanner({ resources, initialResults, onClose, onSaved }: { resou
   const [types, setTypes] = useState<Record<string, ResourceType>>(() => Object.fromEntries(initialResults.map(result => [scanKey(result), result.suggestedType])));
   const [names, setNames] = useState<Record<string, string>>(() => Object.fromEntries(initialResults.map(result => [scanKey(result), defaultScanName(result)])));
   const [usernames, setUsernames] = useState<Record<string, string>>({});
+  const [credentialIds, setCredentialIds] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<Set<string>>(() => new Set(initialResults.map(scanKey)));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -849,6 +850,7 @@ function NetworkScanner({ resources, initialResults, onClose, onSaved }: { resou
       setResults(response.results);
       setTypes(Object.fromEntries(response.results.map(result => [scanKey(result), result.suggestedType])));
       setNames(Object.fromEntries(response.results.map(result => [scanKey(result), defaultScanName(result)])));
+      setCredentialIds({});
       setSelected(new Set(response.results.map(scanKey)));
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : 'SCAN_FAILED';
@@ -869,22 +871,22 @@ function NetworkScanner({ resources, initialResults, onClose, onSaved }: { resou
       const chosen = results.filter(result => selected.has(scanKey(result)) && !findDuplicateResource(resources, result, types[scanKey(result)] ?? result.suggestedType));
       if (!chosen.length) throw new Error('Keine neuen Funde ausgewählt.');
       const prepared = chosen.map(result => {
-        const key = scanKey(result); const type = types[key] ?? result.suggestedType; const username = (usernames[key] ?? '').trim(); const name = (names[key] ?? defaultScanName(result, type)).trim();
+        const key = scanKey(result); const type = types[key] ?? result.suggestedType; const credential = credentials.find(entry => entry.id === credentialIds[key]); const username = (credential?.username ?? usernames[key] ?? '').trim(); const name = (names[key] ?? defaultScanName(result, type)).trim();
         if (!name) throw new Error(`Name für ${result.ip}:${result.port} fehlt.`);
         if (name.length > 120) throw new Error(`Name für ${result.ip}:${result.port} ist zu lang.`);
-        return { result, type, username, name };
+        return { result, type, username, name, credential };
       });
       const now = new Date(); const pad = (value: number) => String(value).padStart(2, '0');
       const scanGroup = await api.createCategory(`Scan ${pad(now.getDate())}.${pad(now.getMonth() + 1)}.${now.getFullYear()} ${pad(now.getHours())}:${pad(now.getMinutes())}`);
       const createdDiscoveries: NetworkScanResult[] = [];
       try {
-      for (const [index, { result, type, username, name }] of prepared.entries()) {
+      for (const [index, { result, type, username, name, credential }] of prepared.entries()) {
         const config = type === 'web'
           ? { url: `${result.scheme}://${result.ip}${((result.scheme === 'http' && result.port === 80) || (result.scheme === 'https' && result.port === 443)) ? '' : `:${result.port}`}`, mode: 'auto', authType: 'none', sandbox: 'allow-forms allow-modals allow-popups allow-scripts allow-same-origin' }
           : type === 'ssh'
-            ? { host: result.ip, port: result.port, username, authType: 'password', verifyHostKey: false, hostKeyFingerprint: '' }
+            ? { host: result.ip, port: result.port, username, authType: credential?.kind === 'private_key' ? 'private_key' : 'password', verifyHostKey: false, hostKeyFingerprint: '' }
             : { host: result.ip, port: result.port, username, domain: '', security: 'nla', ignoreCertificate: false };
-        await api.createResource({ type, name, notes: `Gefunden per Netzwerkscan in ${cidr.trim()}`, tags: [], categoryId: scanGroup.id, icon: 'link', position: resources.length + index, enabled: true, credentialId: null, config });
+        await api.createResource({ type, name, notes: `Gefunden per Netzwerkscan in ${cidr.trim()}`, tags: [], categoryId: scanGroup.id, icon: 'link', position: resources.length + index, enabled: true, credentialId: credential?.id ?? null, config });
         createdDiscoveries.push(result);
       }
       } catch (reason) {
@@ -896,6 +898,7 @@ function NetworkScanner({ resources, initialResults, onClose, onSaved }: { resou
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Funde konnten nicht gespeichert werden.'); }
     finally { setBusy(false); }
   };
+  const credentialsFor = (type: ResourceType) => credentials.filter(credential => (!credential.expiresAt || new Date(credential.expiresAt) > new Date()) && (type === 'ssh' || credential.kind === 'password'));
   return <div className="modal" role="dialog" aria-modal="true" aria-labelledby="network-scanner-title"><div className="network-scanner">
     <h2 id="network-scanner-title">Netzwerk scannen</h2>
     <div className="scanner-settings">
@@ -905,9 +908,9 @@ function NetworkScanner({ resources, initialResults, onClose, onSaved }: { resou
       <button className="primary" type="button" disabled={busy} onClick={() => void scan()}>{busy ? 'Scan läuft …' : 'Scan starten'}</button>
     </div>
     <section className="scanner-schedule"><div><h3>Automatischer Nacht-Scan</h3><p className="muted">Läuft täglich serverseitig – auch wenn kein Browser geöffnet ist. Gefundene Systeme werden erst nach deiner Bestätigung angelegt.</p></div><label className="checkbox"><input type="checkbox" checked={scheduleEnabled} onChange={event => setScheduleEnabled(event.target.checked)} /> Täglich ausführen</label><label>Uhrzeit<input type="time" value={runTime} onChange={event => setRunTime(event.target.value)} /></label><label>Zeitzone<input value={timezone} onChange={event => setTimezone(event.target.value)} placeholder="Europe/Berlin" /></label><button type="button" disabled={busy} onClick={() => void saveSchedule()}>Zeitplan speichern</button>{scheduleStatus.lastRunAt && <small>Letzter Lauf: {new Date(scheduleStatus.lastRunAt).toLocaleString('de-DE')}{scheduleStatus.lastError ? ` · Fehler: ${scheduleStatus.lastError}` : ''}</small>}</section>
-    {results.length > 0 && <div className="scanner-results"><table><thead><tr><th /><th>Adresse</th><th>DNS-Name</th><th>Port</th><th>Name der Ressource</th><th>Typ</th><th>Benutzer</th><th>Status</th></tr></thead><tbody>{results.map(result => {
-      const key=scanKey(result); const type=types[key]??result.suggestedType; const duplicate=findDuplicateResource(resources,result,type);
-      return <tr key={key}><td><input aria-label={`${result.ip}:${result.port} auswählen`} type="checkbox" checked={selected.has(key)&&!duplicate} disabled={Boolean(duplicate)} onChange={event => setSelected(current => { const next=new Set(current); if(event.target.checked)next.add(key);else next.delete(key);return next; })} /></td><td>{result.ip}</td><td>{result.hostname??'–'}</td><td>{result.port}{result.service==='unknown'?' (offen)':''}</td><td><input aria-label={`Name für ${key}`} maxLength={120} value={names[key]??defaultScanName(result,type)} disabled={Boolean(duplicate)} onChange={event=>setNames(current=>({...current,[key]:event.target.value}))} /></td><td><select aria-label={`Typ für ${key}`} value={type} onChange={event=>{const nextType=event.target.value as ResourceType;setTypes(current=>({...current,[key]:nextType}));setNames(current=>current[key]===defaultScanName(result,type)?{...current,[key]:defaultScanName(result,nextType)}:current);}}><option value="web">Web</option><option value="ssh">SSH</option><option value="rdp">RDP</option></select></td><td>{type==='web'?'–':<input aria-label={`Benutzer für ${key}`} value={usernames[key]??''} onChange={event=>setUsernames(current=>({...current,[key]:event.target.value}))} placeholder="optional" />}</td><td>{duplicate?<span className="duplicate-hint">Bereits vorhanden: {duplicate.name}</span>:'Neu'}</td></tr>;
+    {results.length > 0 && <div className="scanner-results"><table><thead><tr><th /><th>Adresse</th><th>DNS-Name</th><th>Port</th><th>Name der Ressource</th><th>Typ</th><th>Zugangsdaten</th><th>Benutzer</th><th>Status</th></tr></thead><tbody>{results.map(result => {
+      const key=scanKey(result); const type=types[key]??result.suggestedType; const duplicate=findDuplicateResource(resources,result,type);const selectedCredential=credentials.find(credential=>credential.id===credentialIds[key]);
+      return <tr key={key}><td><input aria-label={`${result.ip}:${result.port} auswählen`} type="checkbox" checked={selected.has(key)&&!duplicate} disabled={Boolean(duplicate)} onChange={event => setSelected(current => { const next=new Set(current); if(event.target.checked)next.add(key);else next.delete(key);return next; })} /></td><td>{result.ip}</td><td>{result.hostname??'–'}</td><td>{result.port}{result.service==='unknown'?' (offen)':''}</td><td><input aria-label={`Name für ${key}`} maxLength={120} value={names[key]??defaultScanName(result,type)} disabled={Boolean(duplicate)} onChange={event=>setNames(current=>({...current,[key]:event.target.value}))} /></td><td><select aria-label={`Typ für ${key}`} value={type} onChange={event=>{const nextType=event.target.value as ResourceType;setTypes(current=>({...current,[key]:nextType}));setNames(current=>current[key]===defaultScanName(result,type)?{...current,[key]:defaultScanName(result,nextType)}:current);setCredentialIds(current=>({...current,[key]:''}));}}><option value="web">Web</option><option value="ssh">SSH</option><option value="rdp">RDP</option></select></td><td>{type==='web'?'–':<select aria-label={`Zugangsdaten für ${key}`} value={credentialIds[key]??''} onChange={event=>setCredentialIds(current=>({...current,[key]:event.target.value}))}><option value="">Keine / später</option>{credentialsFor(type).map(credential=><option key={credential.id} value={credential.id}>{credential.name} · {credential.username}{credential.kind==='private_key'?' · Key':''}</option>)}</select>}</td><td>{type==='web'?'–':<input aria-label={`Benutzer für ${key}`} value={selectedCredential?.username??usernames[key]??''} disabled={Boolean(selectedCredential)} onChange={event=>setUsernames(current=>({...current,[key]:event.target.value}))} placeholder="optional" />}</td><td>{duplicate?<span className="duplicate-hint">Bereits vorhanden: {duplicate.name}</span>:'Neu'}</td></tr>;
     })}</tbody></table></div>}
     {results.length===0&&!busy&&<p className="muted">Noch keine Funde. Ein /23 kann abhängig von Portanzahl und Erreichbarkeit einige Sekunden dauern.</p>}
     {results.some(result => (types[scanKey(result)]??result.suggestedType)==='ssh' && selected.has(scanKey(result))) && <div className="security-warning">Automatisch angelegte SSH-Ressourcen haben zunächst keine Host-Key-Prüfung. Den Host-Key anschließend in der Ressource verifizieren und hinterlegen.</div>}
@@ -1033,8 +1036,8 @@ function ResourceEditor({ resource, categories, credentials, onCancel, onSaved }
     }
   };
 
-  return <div className="modal"><form onSubmit={submit}>
-    <h2>{resource ? 'Ressource bearbeiten' : 'Ressource anlegen'}</h2>
+  return <div className="modal"><form className="resource-editor" onSubmit={submit}>
+    <header><h2>{resource ? 'Ressource bearbeiten' : 'Ressource anlegen'}</h2></header><div className="resource-editor-body">
     <label>Typ<select value={type} disabled={Boolean(resource)} onChange={event => {
       const nextType = event.target.value as ResourceType;
       setType(nextType);
@@ -1092,6 +1095,6 @@ function ResourceEditor({ resource, categories, credentials, onCancel, onSaved }
     <label>Gruppe<select value={creatingCategory ? '__new__' : categoryId} onChange={event => { if (event.target.value === '__new__') { setCreatingCategory(true); } else { setCreatingCategory(false); setNewCategoryName(''); setCategory(event.target.value); } }}><option value="">Ohne</option><option value="__new__">＋ Neu anlegen …</option>{categories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
     {creatingCategory && <div className="inline-credential-fields"><label>Neue Gruppe<input required maxLength={80} value={newCategoryName} onChange={event => setNewCategoryName(event.target.value)} placeholder="z. B. Smart Home" /></label><div className="security-info">Die Gruppe wird beim Speichern angelegt und dieser Ressource direkt zugewiesen.</div></div>}
     {error && <div role="alert" className="error">{error}</div>}
-    <div className="actions"><button type="button" onClick={onCancel}>Abbrechen</button><button className="primary">Speichern</button></div>
+    </div><footer className="actions"><button type="button" onClick={onCancel}>Abbrechen</button><button className="primary">Speichern</button></footer>
   </form></div>;
 }

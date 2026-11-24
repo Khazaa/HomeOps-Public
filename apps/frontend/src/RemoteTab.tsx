@@ -5,12 +5,12 @@ import { sendClipboardText } from './remoteClipboard';
 import { diagnosticFilename, formatRemoteDiagnostics, type RemoteDiagnosticEntry } from './remoteDiagnostics';
 import { RemoteKeyboardController } from './remoteKeyboard';
 import { sendRemoteSize } from './remoteSize';
-import type { AuditEvent, Resource } from './types';
+import type { AuditEvent, Credential, Resource } from './types';
 
 type State = 'disconnected' | 'connecting' | 'connected' | 'error';
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || 'development';
 
-export const RemoteTab = memo(function RemoteTab({ resource, active }: { resource: Resource; active: boolean }) {
+export const RemoteTab = memo(function RemoteTab({ resource, credentials, active, onResourceUpdated }: { resource: Resource; credentials: Credential[]; active: boolean; onResourceUpdated: () => Promise<void> }) {
   const remote = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
   const client = useRef<any>(null);
@@ -24,7 +24,12 @@ export const RemoteTab = memo(function RemoteTab({ resource, active }: { resourc
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [diagnostics, setDiagnostics] = useState<RemoteDiagnosticEntry[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
-  const missingSshUsername = resource.type === 'ssh' && !resource.credentialId && !String(resource.config.username ?? '').trim();
+  const [selectedCredentialId, setSelectedCredentialId] = useState(resource.credentialId ?? '');
+  const [assignCredentialOnSuccess, setAssignCredentialOnSuccess] = useState(false);
+  const expectedCredentialKind: Credential['kind'] = resource.type === 'ssh' && resource.config.authType === 'private_key' ? 'private_key' : 'password';
+  const compatibleCredentials = credentials.filter(credential => credential.kind === expectedCredentialKind && (credential.id === selectedCredentialId || !credential.expiresAt || new Date(credential.expiresAt) > new Date()));
+  const temporaryCredentialId = selectedCredentialId && selectedCredentialId !== resource.credentialId ? selectedCredentialId : undefined;
+  const missingSshUsername = resource.type === 'ssh' && !selectedCredentialId && !String(resource.config.username ?? '').trim();
   const recordDiagnostic = (level: RemoteDiagnosticEntry['level'], message: string, details?: Record<string, unknown>) => setDiagnostics(current => [...current.slice(-99), { at: new Date().toISOString(), level, message, details }]);
   const loadAudit = async () => {
     try { setAuditEvents((await api.audit()).events.filter(event => event.resourceId === resource.id).slice(0, 20)); }
@@ -73,7 +78,7 @@ export const RemoteTab = memo(function RemoteTab({ resource, active }: { resourc
     recordDiagnostic('info', 'Verbindungsaufbau gestartet', { protocol: resource.type, host: resource.config.host, port: resource.config.port, credential: resource.credentialId ? 'global' : resource.hasLocalSecret ? 'local' : 'prompt' });
     try {
       const rect = host.current.getBoundingClientRect();
-      const ticket = await api.connect(resource.id, secret || undefined, Math.max(640, Math.floor(rect.width)), Math.max(400, Math.floor(rect.height)));
+      const ticket = await api.connect(resource.id, secret || undefined, Math.max(640, Math.floor(rect.width)), Math.max(400, Math.floor(rect.height)), temporaryCredentialId);
       recordDiagnostic('info', 'Backend-Ticket erhalten', { protocol: ticket.protocol, expiresIn: ticket.expiresIn });
       const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
       const tunnel = new Guacamole.WebSocketTunnel(`${scheme}://${location.host}/api/v1/tunnel`);
@@ -88,7 +93,7 @@ export const RemoteTab = memo(function RemoteTab({ resource, active }: { resourc
       guac.onstatechange = (nextState: number) => {
         const labels: Record<number,string> = { 0: 'Leerlauf', 1: 'Verbinden', 2: 'Warten', 3: 'Verbunden', 4: 'Trennen', 5: 'Getrennt' };
         recordDiagnostic('info', `Guacamole-Status: ${labels[nextState] ?? nextState}`);
-        if (nextState === 3) { setState('connected'); requestAnimationFrame(fitDisplay); }
+        if (nextState === 3) { setState('connected'); requestAnimationFrame(fitDisplay); if(assignCredentialOnSuccess&&temporaryCredentialId){void api.updateResource(resource.id,{credentialId:temporaryCredentialId}).then(async()=>{recordDiagnostic('info','Credential dauerhaft an Ressource gespeichert');setAssignCredentialOnSuccess(false);await onResourceUpdated();}).catch(reason=>recordDiagnostic('error','Credential konnte nicht zugeordnet werden',{message:reason instanceof Error?reason.message:'Unbekannter Fehler'}));} }
         if (nextState === 5) setState('disconnected');
       };
       const mouse = new Guacamole.Mouse(displayElement);
@@ -142,15 +147,17 @@ export const RemoteTab = memo(function RemoteTab({ resource, active }: { resourc
     document.addEventListener('paste', paste, true);
     return () => document.removeEventListener('paste', paste, true);
   }, [active, resource.type, state]);
+  useEffect(() => { setSelectedCredentialId(resource.credentialId ?? ''); setAssignCredentialOnSuccess(false); }, [resource.credentialId]);
 
   return <div ref={remote} className="remote">
     <form className="viewer-toolbar" onSubmit={event => { event.preventDefault(); if (state !== 'connected') void connect(); }}>
       <span className={`status ${state}`}>{state === 'connected' ? 'Verbunden' : state === 'connecting' ? 'Verbinden …' : state === 'error' ? 'Fehler' : 'Getrennt'}</span>
-      {state !== 'connected' && <><input aria-label="Passwort oder Private Key" type="password" value={secret} disabled={missingSshUsername} onChange={event => setSecret(event.target.value)} placeholder={resource.hasSecret ? 'Gespeichertes Secret verwenden' : 'Passwort / Private Key'} /><button type="submit" disabled={state === 'connecting' || missingSshUsername}>{state === 'error' ? 'Erneut verbinden' : 'Verbinden'}</button></>}
+      {state !== 'connected' && <><input aria-label="Passwort oder Private Key" type="password" value={secret} disabled={missingSshUsername || Boolean(selectedCredentialId)} onChange={event => setSecret(event.target.value)} placeholder={selectedCredentialId ? 'Gespeichertes Credential verwenden' : resource.hasSecret ? 'Gespeichertes Secret verwenden' : 'Passwort / Private Key'} /><button type="submit" disabled={state === 'connecting' || missingSshUsername}>{state === 'error' ? 'Erneut verbinden' : 'Verbinden'}</button></>}
       {state === 'connected' && <><span className="viewer-hint">Einfügen: Strg+V / Strg+Shift+V</span><button type="button" onClick={() => void (fullscreen ? document.exitFullscreen() : remote.current?.requestFullscreen())}>{fullscreen ? 'Vollbild beenden' : 'Vollbild'}</button><button type="button" onClick={disconnect}>Trennen</button></>}
       <button type="button" onClick={() => { setDiagnosticsOpen(open => !open); if (!diagnosticsOpen) void loadAudit(); }}>{diagnosticsOpen ? 'Diagnose schließen' : 'Diagnose anzeigen'}</button>
       <button type="button" onClick={() => void downloadDiagnostics()}>Protokoll herunterladen</button>
     </form>
+    {state !== 'connected' && <div className="remote-credential-picker"><label>Gespeicherte Zugangsdaten<select aria-label="Gespeicherte Zugangsdaten" value={selectedCredentialId} onChange={event=>{setSelectedCredentialId(event.target.value);setAssignCredentialOnSuccess(false);setError('');}}><option value="">Keine / Secret eingeben</option>{resource.credentialId&&!compatibleCredentials.some(entry=>entry.id===resource.credentialId)&&<option value={resource.credentialId}>Aktuell zugeordnetes Credential</option>}{compatibleCredentials.map(credential=><option key={credential.id} value={credential.id}>{credential.name} · {credential.username}</option>)}</select></label>{temporaryCredentialId&&<label className="checkbox"><input type="checkbox" checked={assignCredentialOnSuccess} onChange={event=>setAssignCredentialOnSuccess(event.target.checked)} /> Bei erfolgreicher Verbindung dauerhaft dieser Ressource zuordnen</label>}</div>}
     {missingSshUsername && <div role="alert" className="error">SSH-Benutzer fehlt. Bitte die Ressource bearbeiten und einen Benutzer oder globale Zugangsdaten hinterlegen.</div>}
     {error && <div role="alert" className="error">{error}</div>}
     {diagnosticsOpen && <section className="remote-diagnostics"><h3>Verbindungsdiagnose</h3><p className="muted">Browser-/Tunnelereignisse und Backend-Audit, ohne Secrets oder Sitzungstokens.</p><pre>{formatRemoteDiagnostics(resource, diagnostics, auditEvents, APP_VERSION, navigator.userAgent)}</pre></section>}

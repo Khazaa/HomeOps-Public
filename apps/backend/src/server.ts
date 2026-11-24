@@ -213,9 +213,10 @@ app.post('/api/v1/resources/:id/connect', { preHandler: [authenticate, requireCs
   const resource=await ownedResource(z.string().uuid().parse((request.params as {id:string}).id),request.authUser!.id);
   if(resource.type==='web') throw app.httpErrors.badRequest('NOT_REMOTE_RESOURCE');
   try {
-    const body=z.object({secret:z.string().max(16384).optional(),width:z.number().int().min(320).max(7680).default(1280),height:z.number().int().min(200).max(4320).default(720)}).parse(request.body??{});
+    const body=z.object({secret:z.string().max(16384).optional(),credentialId:z.string().uuid().optional(),width:z.number().int().min(320).max(7680).default(1280),height:z.number().int().min(200).max(4320).default(720)}).parse(request.body??{});
     let secret=body.secret;let credentialUsername:string|undefined;
-    if(resource.credential_id){const row=(await db.query('SELECT payload,username,expires_at FROM credentials WHERE id=$1 AND owner_id=$2',[resource.credential_id,resource.owner_id])).rows[0];if(row){if(row.expires_at&&new Date(row.expires_at)<=new Date())throw app.httpErrors.badRequest('CREDENTIAL_EXPIRED');if(!secret)secret=decryptSecret(row.payload,config.MASTER_KEY);credentialUsername=row.username||undefined;}}
+    const selectedCredentialId=body.credentialId??resource.credential_id;
+    if(selectedCredentialId){const credentialOwner=body.credentialId?request.authUser!.id:resource.owner_id;const row=(await db.query('SELECT payload,username,kind,expires_at FROM credentials WHERE id=$1 AND owner_id=$2',[selectedCredentialId,credentialOwner])).rows[0];if(!row)throw app.httpErrors.badRequest('CREDENTIAL_NOT_FOUND');if(row.expires_at&&new Date(row.expires_at)<=new Date())throw app.httpErrors.badRequest('CREDENTIAL_EXPIRED');const expected=resource.type==='ssh'&&resource.config.authType==='private_key'?'private_key':'password';if(row.kind!==expected)throw app.httpErrors.badRequest('CREDENTIAL_TYPE_MISMATCH');if(!secret)secret=decryptSecret(row.payload,config.MASTER_KEY);credentialUsername=row.username||undefined;}
     if(!secret&&resource.secret_id){const row=(await db.query('SELECT payload FROM secrets WHERE id=$1 AND owner_id=$2',[resource.secret_id,resource.owner_id])).rows[0]; if(row) secret=decryptSecret(row.payload,config.MASTER_KEY);}
     const c=resource.config;const username=remoteUsername(resource.type,credentialUsername,c.username);
     if(!secret) throw app.httpErrors.badRequest('CREDENTIAL_REQUIRED');

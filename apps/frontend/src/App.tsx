@@ -3,7 +3,7 @@ import { api } from './api';
 import { BrandMark, Icon } from './Icons';
 import { randomId } from './randomId';
 import { RemoteTab } from './RemoteTab';
-import type { AuditEvent, Category, Credential, NetworkScanResult, Resource, ResourceType, Tab } from './types';
+import type { AuditEvent, Category, Credential, NetworkScanResult, NetworkScanSchedule, Resource, ResourceType, Tab } from './types';
 import { WebTab } from './WebTab';
 
 const INBOX_WORKSPACE_ID = 'inbox';
@@ -69,14 +69,17 @@ export function App() {
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [scannerResults, setScannerResults] = useState<NetworkScanResult[]>([]);
+  const [discoveries, setDiscoveries] = useState<NetworkScanResult[]>([]);
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const preferenceSaveQueue = useRef<Promise<void>>(Promise.resolve());
 
   const refresh = async () => {
-    const [nextResources, nextCategories, nextCredentials] = await Promise.all([api.resources(), api.categories(), api.credentials()]);
+    const [nextResources, nextCategories, nextCredentials, found] = await Promise.all([api.resources(), api.categories(), api.credentials(), api.networkDiscoveries()]);
     setResources(nextResources);
     setCategories(nextCategories);
     setCredentials(nextCredentials);
+    setDiscoveries(found.results);
     setTabs(current => current.map(tab => {
       const resource = nextResources.find(entry => entry.id === tab.resourceId);
       return resource ? { ...tab, title: resource.name } : tab;
@@ -90,6 +93,11 @@ export function App() {
       setPreferences(stored.data);
     }).catch(() => setUser(null)).finally(() => setLoading(false));
   }, []);
+  useEffect(() => {
+    if (!user) return;
+    const timer = window.setInterval(() => { void api.networkDiscoveries().then(found => setDiscoveries(found.results)); }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [user]);
   useEffect(() => {
     localStorage.setItem('homeops.tabs', JSON.stringify(tabs));
     if (active !== 'dashboard' && !tabs.some(tab => tab.id === active)) setActive('dashboard');
@@ -403,6 +411,7 @@ export function App() {
   const recentCollapsed = collapsedGroups.has('recent') && !query;
   const launcherResults = resources.filter(resource => resource.name.toLowerCase().includes(launcherQuery.trim().toLowerCase())).slice(0, 12);
   const availableTags = [...new Set(resources.flatMap(resource => resource.tags))].sort((left, right) => left.localeCompare(right, 'de', { sensitivity: 'base' }));
+  const newDiscoveries = discoveries.filter(result => !resources.some(resource => findDuplicateResource([resource], result, resource.type)));
   const closeResourceActions = () => {
     setResourceContextMenu(null);
   };
@@ -522,7 +531,7 @@ export function App() {
         {resourceGroup('uncategorized', 'Ohne Kategorie')}
       </div>
       <div className="sidebar-footer">
-        <button className="text-icon-button" onClick={() => setScannerOpen(true)}><Icon name="test" /> Netzwerk scannen</button>
+        <button className="text-icon-button" onClick={() => { setScannerResults([]); setScannerOpen(true); }}><Icon name="test" /> Netzwerk scannen</button>
         <button className="text-icon-button group-button" onClick={async () => { const name = prompt('Name der neuen Gruppe'); if (name) { await api.createCategory(name); await refresh(); } }}><Icon name="plus" /> Gruppe</button>
       </div>
     </aside>
@@ -548,7 +557,7 @@ export function App() {
         <span>{typeIcon(tab.type)} {tab.title}</span><i onClick={event => { event.stopPropagation(); close(tab); }}><Icon name="close" size={16} /></i>
       </button>)}</nav>
       <div className="workspace">
-        {active === 'dashboard' && <Dashboard resources={resources} favorites={favoriteResources} recent={recentResources} credentials={credentials} status={resourceStatus} openTabs={tabs.length} onOpen={open} />}
+        {active === 'dashboard' && <Dashboard resources={resources} favorites={favoriteResources} recent={recentResources} credentials={credentials} discoveries={newDiscoveries} status={resourceStatus} openTabs={tabs.length} onOpen={open} onReviewDiscoveries={() => { setScannerResults(newDiscoveries); setScannerOpen(true); }} />}
         {tabs.map(tab => {
           const resource = resources.find(entry => entry.id === tab.resourceId);
           return resource ? <section className="tab-panel" hidden={tab.id !== active} key={`${tab.id}:${tabRevisions[tab.id] ?? 0}`}>
@@ -565,7 +574,7 @@ export function App() {
     </div>}
     {resourceContextMenu && <div className="resource-context-menu" role="menu" aria-label={`Aktionen für ${resourceContextMenu.resource.name}`} style={{ left: resourceContextMenu.x, top: resourceContextMenu.y }}>{resourceActions(resourceContextMenu.resource)}</div>}
     {editor && <ResourceEditor key={editor === 'new' ? 'new' : editor.id} resource={editor === 'new' ? undefined : editor} categories={categories} credentials={credentials} onCancel={() => setEditor(null)} onSaved={async () => { setEditor(null); await refresh(); }} />}
-    {scannerOpen && <NetworkScanner resources={resources} onClose={() => setScannerOpen(false)} onSaved={refresh} />}
+    {scannerOpen && <NetworkScanner resources={resources} initialResults={scannerResults} onClose={() => setScannerOpen(false)} onSaved={refresh} />}
     {managingCredentials && <CredentialManager credentials={credentials} resources={resources} onCancel={() => setManagingCredentials(false)} onChanged={refresh} />}
     {changingPassword && <ChangePassword onCancel={() => setChangingPassword(false)} onSaved={() => { setChangingPassword(false); setNotice('Kennwort geändert. Andere Sitzungen wurden abgemeldet.'); }} />}
     {auditEvents && <AuditHistory events={auditEvents} onClose={() => setAuditEvents(null)} />}
@@ -581,7 +590,7 @@ export function App() {
   </div>;
 }
 
-function Dashboard({ resources, favorites, recent, credentials, status, openTabs, onOpen }: { resources: Resource[]; favorites: Resource[]; recent: Resource[]; credentials: Credential[]; status: Record<string, { state: 'checking' | 'online' | 'offline'; message: string }>; openTabs: number; onOpen: (resource: Resource) => void }) {
+function Dashboard({ resources, favorites, recent, credentials, discoveries, status, openTabs, onOpen, onReviewDiscoveries }: { resources: Resource[]; favorites: Resource[]; recent: Resource[]; credentials: Credential[]; discoveries: NetworkScanResult[]; status: Record<string, { state: 'checking' | 'online' | 'offline'; message: string }>; openTabs: number; onOpen: (resource: Resource) => void; onReviewDiscoveries: () => void }) {
   const scrollArea = useRef<HTMLDivElement>(null);
   const scrollRail = useRef<HTMLDivElement>(null);
   const [scrollMetrics, setScrollMetrics] = useState({ top: 0, viewport: 1, content: 1, rail: 1 });
@@ -622,6 +631,7 @@ function Dashboard({ resources, favorites, recent, credentials, status, openTabs
       <article><strong className={expiring.length ? 'warn' : ''}>{expiring.length}</strong><span>Credentials bald abgelaufen</span></article>
     </div>
     <div className="dashboard-columns">
+      {discoveries.length > 0 && <article className="network-discoveries"><h2><Icon name="test" /> Neue Systeme</h2><p><strong>{discoveries.length}</strong> noch nicht übernommene {discoveries.length === 1 ? 'Ressource' : 'Ressourcen'} gefunden.</p><div className="dashboard-list">{discoveries.slice(0, 5).map(result => <button key={scanKey(result)} onClick={onReviewDiscoveries}><span>{result.hostname?.replace(/\.$/, '') || result.ip}</span><small>{result.ip}:{result.port}</small></button>)}</div><button className="primary" onClick={onReviewDiscoveries}>Funde prüfen</button></article>}
       <article><h2><span className="status-heading-dot offline" /> Nicht erreichbar</h2><div className="dashboard-list">{offlineResources.length ? offlineResources.map(resource => <button key={resource.id} onClick={() => onOpen(resource)}><span>{resource.name}</span><small>{status[resource.id]?.message}</small><i className="resource-status offline" /></button>) : <p className="muted">Alle geprüften Ressourcen sind erreichbar.</p>}</div></article>
       <article><h2><Icon name="star" /> Favoriten</h2><div className="dashboard-list">{favorites.length ? favorites.map(resource => <button key={resource.id} onClick={() => onOpen(resource)}>{typeIcon(resource.type)}<span>{resource.name}</span><i className={`resource-status ${status[resource.id]?.state ?? 'checking'}`} /></button>) : <p className="muted">Noch keine Favoriten markiert.</p>}</div></article>
       <article><h2>Zuletzt verwendet</h2><div className="dashboard-list">{recent.length ? recent.slice(0, 8).map(resource => <button key={resource.id} onClick={() => onOpen(resource)}>{typeIcon(resource.type)}<span>{resource.name}</span></button>) : <p className="muted">Noch keine Ressource geöffnet.</p>}</div></article>
@@ -780,17 +790,115 @@ function Login({ onSuccess }: { onSuccess: () => void }) {
 }
 
 const scanKey = (result: NetworkScanResult) => `${result.ip}:${result.port}`;
-function duplicateResource(resources: Resource[], result: NetworkScanResult, type: ResourceType) {
-  const hosts=new Set([result.ip,result.hostname].filter(Boolean).map(value=>String(value).toLowerCase().replace(/\.$/,'')));
-  return resources.find(resource=>{if(resource.type!==type)return false;if(type==='web'){try{const url=new URL(String(resource.config.url));const port=Number(url.port||(url.protocol==='https:'?443:80));return hosts.has(url.hostname.toLowerCase())&&port===result.port}catch{return false}}return hosts.has(String(resource.config.host??'').toLowerCase())&&Number(resource.config.port)===result.port;});
+function findDuplicateResource(resources: Resource[], result: NetworkScanResult, type: ResourceType) {
+  const hosts = new Set([result.ip, result.hostname].filter(Boolean).map(value => String(value).toLowerCase().replace(/\.$/, '')));
+  return resources.find(resource => {
+    if (resource.type !== type) return false;
+    if (type === 'web') {
+      try { const url = new URL(String(resource.config.url)); const port = Number(url.port || (url.protocol === 'https:' ? 443 : 80)); return hosts.has(url.hostname.toLowerCase()) && port === result.port; }
+      catch { return false; }
+    }
+    return hosts.has(String(resource.config.host ?? '').toLowerCase()) && Number(resource.config.port) === result.port;
+  });
 }
-function NetworkScanner({resources,onClose,onSaved}:{resources:Resource[];onClose:()=>void;onSaved:()=>Promise<void>}) {
-  const[cidr,setCidr]=useState('192.168.1.0/24');const[web,setWeb]=useState(true);const[ssh,setSsh]=useState(true);const[rdp,setRdp]=useState(true);const[customPorts,setCustomPorts]=useState('');const[results,setResults]=useState<NetworkScanResult[]>([]);const[types,setTypes]=useState<Record<string,ResourceType>>({});const[usernames,setUsernames]=useState<Record<string,string>>({});const[selected,setSelected]=useState<Set<string>>(new Set());const[busy,setBusy]=useState(false);const[error,setError]=useState('');
-  const scan=async()=>{setBusy(true);setError('');setResults([]);try{const ports=[...new Set(customPorts.split(/[\s,;]+/).filter(Boolean).map(Number))];if(ports.some(port=>!Number.isInteger(port)||port<1||port>65535)||ports.length>16)throw new Error('Maximal 16 gültige Ports zwischen 1 und 65535 angeben.');const response=await api.scanNetwork({cidr:cidr.trim(),web,ssh,rdp,ports});setResults(response.results);setTypes(Object.fromEntries(response.results.map(result=>[scanKey(result),result.suggestedType])));setSelected(new Set(response.results.map(scanKey)))}catch(reason){const message=reason instanceof Error?reason.message:'SCAN_FAILED';setError(({CIDR_INVALID:'Ungültiges IPv4-CIDR.',CIDR_TOO_LARGE:'Das Netz darf maximal /23 groß sein.',CIDR_NOT_PRIVATE:'Es sind nur private IPv4-Netze erlaubt.',SCAN_PORTS_REQUIRED:'Mindestens einen Dienst oder Port auswählen.'}as Record<string,string>)[message]??message)}finally{setBusy(false)}};
-  const save=async()=>{setBusy(true);setError('');try{const chosen=results.filter(result=>selected.has(scanKey(result))&&!duplicateResource(resources,result,types[scanKey(result)]??result.suggestedType));if(!chosen.length)throw new Error('Keine neuen Funde ausgewählt.');for(const[index,result]of chosen.entries()){const key=scanKey(result);const type=types[key]??result.suggestedType;const username=(usernames[key]??'').trim();if(type==='ssh'&&!username)throw new Error(`SSH-Benutzer für ${result.ip}:${result.port} fehlt.`);const hostName=result.hostname?.replace(/\.$/,'')||result.ip;const label=type==='web'?`Web ${result.port}`:`${type.toUpperCase()} ${result.port}`;const config=type==='web'?{url:`${result.scheme}://${result.ip}${((result.scheme==='http'&&result.port===80)||(result.scheme==='https'&&result.port===443))?'':`:${result.port}`}`,mode:'auto',authType:'none',sandbox:'allow-forms allow-modals allow-popups allow-scripts allow-same-origin'}:type==='ssh'?{host:result.ip,port:result.port,username,authType:'password',verifyHostKey:false,hostKeyFingerprint:''}:{host:result.ip,port:result.port,username,domain:'',security:'nla',ignoreCertificate:false};await api.createResource({type,name:`${hostName} · ${label}`,notes:`Gefunden per Netzwerkscan in ${cidr.trim()}`,tags:[],categoryId:null,icon:'link',position:resources.length+index,enabled:true,credentialId:null,config})}await onSaved();onClose()}catch(reason){setError(reason instanceof Error?reason.message:'Funde konnten nicht gespeichert werden.')}finally{setBusy(false)}};
-  return <div className="modal" role="dialog" aria-modal="true" aria-labelledby="network-scanner-title"><div className="network-scanner"><h2 id="network-scanner-title">Netzwerk scannen</h2><div className="scanner-settings"><label>IPv4-Netz (maximal /23)<input value={cidr} onChange={event=>setCidr(event.target.value)} placeholder="192.168.1.0/24"/></label><fieldset><legend>Standarddienste</legend><label className="checkbox"><input type="checkbox" checked={web} onChange={event=>setWeb(event.target.checked)}/> Web (80, 443, 8080, 8443)</label><label className="checkbox"><input type="checkbox" checked={ssh} onChange={event=>setSsh(event.target.checked)}/> SSH (22)</label><label className="checkbox"><input type="checkbox" checked={rdp} onChange={event=>setRdp(event.target.checked)}/> RDP (3389)</label></fieldset><label>Zusätzliche Ports (max. 16)<input value={customPorts} onChange={event=>setCustomPorts(event.target.value)} placeholder="z. B. 3000, 8123, 2222"/></label><button className="primary" type="button" disabled={busy} onClick={()=>void scan()}>{busy?'Scan läuft …':'Scan starten'}</button></div>
-  {results.length>0&&<div className="scanner-results"><table><thead><tr><th/><th>Adresse</th><th>DNS-Name</th><th>Port</th><th>Typ</th><th>Benutzer</th><th>Status</th></tr></thead><tbody>{results.map(result=>{const key=scanKey(result);const type=types[key]??result.suggestedType;const duplicate=duplicateResource(resources,result,type);return <tr key={key}><td><input aria-label={`${result.ip}:${result.port} auswählen`} type="checkbox" checked={selected.has(key)&&!duplicate} disabled={Boolean(duplicate)} onChange={event=>setSelected(current=>{const next=new Set(current);if(event.target.checked)next.add(key);else next.delete(key);return next})}/></td><td>{result.ip}</td><td>{result.hostname??'–'}</td><td>{result.port}{result.service==='unknown'?' (offen)':''}</td><td><select aria-label={`Typ für ${key}`} value={type} onChange={event=>setTypes(current=>({...current,[key]:event.target.value as ResourceType}))}><option value="web">Web</option><option value="ssh">SSH</option><option value="rdp">RDP</option></select></td><td>{type==='web'?'–':<input aria-label={`Benutzer für ${key}`} value={usernames[key]??''} onChange={event=>setUsernames(current=>({...current,[key]:event.target.value}))} placeholder={type==='ssh'?'erforderlich':'optional'}/>}</td><td>{duplicate?<span className="duplicate-hint">Bereits vorhanden: {duplicate.name}</span>:'Neu'}</td></tr>})}</tbody></table></div>}
-  {results.length===0&&!busy&&<p className="muted">Noch keine Funde. Ein /23 kann abhängig von Portanzahl und Erreichbarkeit einige Sekunden dauern.</p>}{results.some(result=>(types[scanKey(result)]??result.suggestedType)==='ssh'&&selected.has(scanKey(result)))&&<div className="security-warning">Automatisch angelegte SSH-Ressourcen haben zunächst keine Host-Key-Prüfung. Den Host-Key anschließend in der Ressource verifizieren und hinterlegen.</div>}{error&&<div role="alert" className="error">{error}</div>}<div className="actions"><button type="button" onClick={onClose} disabled={busy}>Schließen</button>{results.length>0&&<button className="primary" type="button" onClick={()=>void save()} disabled={busy}>Ausgewählte speichern</button>}</div></div></div>;
+
+function NetworkScanner({ resources, initialResults, onClose, onSaved }: { resources: Resource[]; initialResults: NetworkScanResult[]; onClose: () => void; onSaved: () => Promise<void> }) {
+  const [cidr, setCidr] = useState('192.168.1.0/24');
+  const [web, setWeb] = useState(true);
+  const [ssh, setSsh] = useState(true);
+  const [rdp, setRdp] = useState(true);
+  const [customPorts, setCustomPorts] = useState('');
+  const [results, setResults] = useState<NetworkScanResult[]>(initialResults);
+  const [types, setTypes] = useState<Record<string, ResourceType>>(() => Object.fromEntries(initialResults.map(result => [scanKey(result), result.suggestedType])));
+  const [usernames, setUsernames] = useState<Record<string, string>>({});
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(initialResults.map(scanKey)));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [scheduleEnabled, setScheduleEnabled] = useState(false);
+  const [runTime, setRunTime] = useState('03:00');
+  const [timezone, setTimezone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Berlin');
+  const [scheduleStatus, setScheduleStatus] = useState<Pick<NetworkScanSchedule, 'lastRunAt' | 'lastError'>>({ lastRunAt: null, lastError: null });
+  useEffect(() => { void api.networkSchedule().then(schedule => {
+    setScheduleEnabled(schedule.enabled); setCidr(schedule.cidr); setWeb(schedule.web); setSsh(schedule.ssh); setRdp(schedule.rdp); setCustomPorts(schedule.ports.join(', ')); setRunTime(schedule.runTime); setTimezone(schedule.timezone); setScheduleStatus(schedule);
+  }).catch(reason => setError(reason instanceof Error ? reason.message : 'Zeitplan konnte nicht geladen werden.')); }, []);
+  const parsedPorts = () => {
+    const ports = [...new Set(customPorts.split(/[\s,;]+/).filter(Boolean).map(Number))];
+    if (ports.some(port => !Number.isInteger(port) || port < 1 || port > 65535) || ports.length > 16) throw new Error('Maximal 16 gültige Ports zwischen 1 und 65535 angeben.');
+    return ports;
+  };
+  const scan = async () => {
+    setBusy(true); setError(''); setResults([]);
+    try {
+      const ports = parsedPorts();
+      const response = await api.scanNetwork({ cidr: cidr.trim(), web, ssh, rdp, ports });
+      setResults(response.results);
+      setTypes(Object.fromEntries(response.results.map(result => [scanKey(result), result.suggestedType])));
+      setSelected(new Set(response.results.map(scanKey)));
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : 'SCAN_FAILED';
+      setError(({ CIDR_INVALID: 'Ungültiges IPv4-CIDR.', CIDR_TOO_LARGE: 'Das Netz darf maximal /23 groß sein.', CIDR_NOT_PRIVATE: 'Es sind nur private IPv4-Netze erlaubt.', SCAN_PORTS_REQUIRED: 'Mindestens einen Dienst oder Port auswählen.' } as Record<string,string>)[message] ?? message);
+    } finally { setBusy(false); }
+  };
+  const saveSchedule = async () => {
+    setBusy(true); setError('');
+    try {
+      const saved = await api.saveNetworkSchedule({ enabled: scheduleEnabled, cidr: cidr.trim(), web, ssh, rdp, ports: parsedPorts(), runTime, timezone: timezone.trim() });
+      setScheduleStatus(saved);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Zeitplan konnte nicht gespeichert werden.'); }
+    finally { setBusy(false); }
+  };
+  const save = async () => {
+    setBusy(true); setError('');
+    try {
+      const chosen = results.filter(result => selected.has(scanKey(result)) && !findDuplicateResource(resources, result, types[scanKey(result)] ?? result.suggestedType));
+      if (!chosen.length) throw new Error('Keine neuen Funde ausgewählt.');
+      const prepared = chosen.map(result => {
+        const key = scanKey(result); const type = types[key] ?? result.suggestedType; const username = (usernames[key] ?? '').trim();
+        if (type === 'ssh' && !username) throw new Error(`SSH-Benutzer für ${result.ip}:${result.port} fehlt.`);
+        return { result, type, username };
+      });
+      const now = new Date(); const pad = (value: number) => String(value).padStart(2, '0');
+      const scanGroup = await api.createCategory(`Scan ${pad(now.getDate())}.${pad(now.getMonth() + 1)}.${now.getFullYear()} ${pad(now.getHours())}:${pad(now.getMinutes())}`);
+      const createdDiscoveries: NetworkScanResult[] = [];
+      try {
+      for (const [index, { result, type, username }] of prepared.entries()) {
+        const hostName = (result.hostname?.replace(/\.$/, '') || result.ip);
+        const label = type === 'web' ? `Web ${result.port}` : `${type.toUpperCase()} ${result.port}`;
+        const config = type === 'web'
+          ? { url: `${result.scheme}://${result.ip}${((result.scheme === 'http' && result.port === 80) || (result.scheme === 'https' && result.port === 443)) ? '' : `:${result.port}`}`, mode: 'auto', authType: 'none', sandbox: 'allow-forms allow-modals allow-popups allow-scripts allow-same-origin' }
+          : type === 'ssh'
+            ? { host: result.ip, port: result.port, username, authType: 'password', verifyHostKey: false, hostKeyFingerprint: '' }
+            : { host: result.ip, port: result.port, username, domain: '', security: 'nla', ignoreCertificate: false };
+        await api.createResource({ type, name: `${hostName} · ${label}`, notes: `Gefunden per Netzwerkscan in ${cidr.trim()}`, tags: [], categoryId: scanGroup.id, icon: 'link', position: resources.length + index, enabled: true, credentialId: null, config });
+        createdDiscoveries.push(result);
+      }
+      } catch (reason) {
+        if (!createdDiscoveries.length) await api.deleteCategory(scanGroup.id).catch(() => undefined);
+        throw reason;
+      }
+      await api.dismissNetworkDiscoveries(createdDiscoveries.map(({ ip, port }) => ({ ip, port })));
+      await onSaved(); onClose();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Funde konnten nicht gespeichert werden.'); }
+    finally { setBusy(false); }
+  };
+  return <div className="modal" role="dialog" aria-modal="true" aria-labelledby="network-scanner-title"><div className="network-scanner">
+    <h2 id="network-scanner-title">Netzwerk scannen</h2>
+    <div className="scanner-settings">
+      <label>IPv4-Netz (maximal /23)<input value={cidr} onChange={event => setCidr(event.target.value)} placeholder="192.168.1.0/24" /></label>
+      <fieldset><legend>Standarddienste</legend><label className="checkbox"><input type="checkbox" checked={web} onChange={event => setWeb(event.target.checked)} /> Web (80, 443, 8080, 8443)</label><label className="checkbox"><input type="checkbox" checked={ssh} onChange={event => setSsh(event.target.checked)} /> SSH (22)</label><label className="checkbox"><input type="checkbox" checked={rdp} onChange={event => setRdp(event.target.checked)} /> RDP (3389)</label></fieldset>
+      <label>Zusätzliche Ports (max. 16)<input value={customPorts} onChange={event => setCustomPorts(event.target.value)} placeholder="z. B. 3000, 8123, 2222" /></label>
+      <button className="primary" type="button" disabled={busy} onClick={() => void scan()}>{busy ? 'Scan läuft …' : 'Scan starten'}</button>
+    </div>
+    <section className="scanner-schedule"><div><h3>Automatischer Nacht-Scan</h3><p className="muted">Läuft täglich serverseitig – auch wenn kein Browser geöffnet ist. Gefundene Systeme werden erst nach deiner Bestätigung angelegt.</p></div><label className="checkbox"><input type="checkbox" checked={scheduleEnabled} onChange={event => setScheduleEnabled(event.target.checked)} /> Täglich ausführen</label><label>Uhrzeit<input type="time" value={runTime} onChange={event => setRunTime(event.target.value)} /></label><label>Zeitzone<input value={timezone} onChange={event => setTimezone(event.target.value)} placeholder="Europe/Berlin" /></label><button type="button" disabled={busy} onClick={() => void saveSchedule()}>Zeitplan speichern</button>{scheduleStatus.lastRunAt && <small>Letzter Lauf: {new Date(scheduleStatus.lastRunAt).toLocaleString('de-DE')}{scheduleStatus.lastError ? ` · Fehler: ${scheduleStatus.lastError}` : ''}</small>}</section>
+    {results.length > 0 && <div className="scanner-results"><table><thead><tr><th /><th>Adresse</th><th>DNS-Name</th><th>Port</th><th>Typ</th><th>Benutzer</th><th>Status</th></tr></thead><tbody>{results.map(result => {
+      const key=scanKey(result); const type=types[key]??result.suggestedType; const duplicate=findDuplicateResource(resources,result,type);
+      return <tr key={key}><td><input aria-label={`${result.ip}:${result.port} auswählen`} type="checkbox" checked={selected.has(key)&&!duplicate} disabled={Boolean(duplicate)} onChange={event => setSelected(current => { const next=new Set(current); if(event.target.checked)next.add(key);else next.delete(key);return next; })} /></td><td>{result.ip}</td><td>{result.hostname??'–'}</td><td>{result.port}{result.service==='unknown'?' (offen)':''}</td><td><select aria-label={`Typ für ${key}`} value={type} onChange={event => setTypes(current=>({...current,[key]:event.target.value as ResourceType}))}><option value="web">Web</option><option value="ssh">SSH</option><option value="rdp">RDP</option></select></td><td>{type==='web'?'–':<input aria-label={`Benutzer für ${key}`} value={usernames[key]??''} onChange={event=>setUsernames(current=>({...current,[key]:event.target.value}))} placeholder={type==='ssh'?'erforderlich':'optional'} />}</td><td>{duplicate?<span className="duplicate-hint">Bereits vorhanden: {duplicate.name}</span>:'Neu'}</td></tr>;
+    })}</tbody></table></div>}
+    {results.length===0&&!busy&&<p className="muted">Noch keine Funde. Ein /23 kann abhängig von Portanzahl und Erreichbarkeit einige Sekunden dauern.</p>}
+    {results.some(result => (types[scanKey(result)]??result.suggestedType)==='ssh' && selected.has(scanKey(result))) && <div className="security-warning">Automatisch angelegte SSH-Ressourcen haben zunächst keine Host-Key-Prüfung. Den Host-Key anschließend in der Ressource verifizieren und hinterlegen.</div>}
+    {error&&<div role="alert" className="error">{error}</div>}
+    <div className="actions"><button type="button" onClick={onClose} disabled={busy}>Schließen</button>{results.length>0&&<button className="primary" type="button" onClick={()=>void save()} disabled={busy}>Ausgewählte speichern</button>}</div>
+  </div></div>;
 }
 
 function ResourceTagsMenu({ resource, availableTags, onChange, onDelete }: { resource: Resource; availableTags: string[]; onChange: (tags: string[]) => Promise<void>; onDelete: (tag: string) => Promise<void> }) {

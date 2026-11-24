@@ -1,4 +1,4 @@
-import type { AuditEvent,Category,Credential,NetworkScanResult,Resource } from './types';
+import type { AuditEvent,Category,Credential,NetworkScanResult,NetworkScanSchedule,Resource } from './types';
 const csrf=()=>decodeURIComponent(document.cookie.split('; ').find(v=>v.startsWith('homeops_csrf='))?.split('=')[1]??'');
 async function request<T>(url:string,init:RequestInit={}):Promise<T>{const headers=new Headers(init.headers);if(init.body)headers.set('content-type','application/json');if(init.method&&!['GET','HEAD'].includes(init.method))headers.set('x-csrf-token',csrf());const response=await fetch(url,{...init,headers,credentials:'include'});if(!response.ok){const detail=await response.json().catch(()=>({}));throw new Error(detail.message??detail.error??`HTTP ${response.status}`)}return response.json()}
 export const api={
@@ -8,6 +8,10 @@ export const api={
   changePassword:(currentPassword:string,newPassword:string)=>request('/api/v1/auth/change-password',{method:'POST',body:JSON.stringify({currentPassword,newPassword})}),
   audit:()=>request<{events:AuditEvent[]}>('/api/v1/audit'),
   scanNetwork:(body:{cidr:string;web:boolean;ssh:boolean;rdp:boolean;ports:number[]})=>request<{results:NetworkScanResult[]}>('/api/v1/network/scan',{method:'POST',body:JSON.stringify(body)}),
+  networkSchedule:()=>request<NetworkScanSchedule>('/api/v1/network/schedule'),
+  saveNetworkSchedule:(body:Omit<NetworkScanSchedule,'lastRunAt'|'lastError'>)=>request<NetworkScanSchedule>('/api/v1/network/schedule',{method:'PUT',body:JSON.stringify(body)}),
+  networkDiscoveries:()=>request<{results:NetworkScanResult[]}>('/api/v1/network/discoveries'),
+  dismissNetworkDiscoveries:(entries:Array<Pick<NetworkScanResult,'ip'|'port'>>)=>request<{ok:boolean}>('/api/v1/network/discoveries',{method:'DELETE',body:JSON.stringify(entries)}),
   credentials:()=>request<Credential[]>('/api/v1/credentials'),
   createCredential:(body:{name:string;username:string;kind:Credential['kind'];secret:string;expiresAt:string|null})=>request<Credential>('/api/v1/credentials',{method:'POST',body:JSON.stringify(body)}),
   updateCredential:(id:string,body:{name:string;username:string;kind:Credential['kind'];secret?:string;expiresAt:string|null})=>request<Credential>(`/api/v1/credentials/${id}`,{method:'PATCH',body:JSON.stringify(body)}),

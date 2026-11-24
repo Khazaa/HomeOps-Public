@@ -4,4 +4,5 @@ export interface Category { id:string; name:string; icon:string; position:number
 export interface Credential { id:string; name:string; username:string; kind:'password'|'private_key'; expiresAt:string|null; createdAt:string; updatedAt:string }
 export interface Tab { id:string; resourceId:string; title:string; type:ResourceType; workspaceId:string }
 export interface AuditEvent { id:string; resourceId:string|null; resourceName:string; protocol:'ssh'|'rdp'; ok:boolean; code:string; createdAt:string; username:string }
-export interface NetworkScanResult { ip:string; hostname:string|null; port:number; service:'web'|'ssh'|'rdp'|'unknown'; suggestedType:ResourceType; scheme:'http'|'https' }
+export interface NetworkScanResult { ip:string; hostname:string|null; port:number; service:'web'|'ssh'|'rdp'|'unknown'; suggestedType:ResourceType; scheme:'http'|'https'; discoveredAt?:string }
+export interface NetworkScanSchedule { enabled:boolean; cidr:string; web:boolean; ssh:boolean; rdp:boolean; ports:number[]; runTime:string; timezone:string; lastRunAt:string|null; lastError:string|null }

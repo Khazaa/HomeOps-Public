@@ -10,6 +10,7 @@ vi.mock('../src/api', () => ({
     categories: vi.fn().mockResolvedValue([]),
     credentials: vi.fn().mockResolvedValue([]),
     preferences: vi.fn().mockResolvedValue({ data: {} }),
+    networkDiscoveries: vi.fn().mockResolvedValue({ results: [] }),
     savePreferences: vi.fn().mockResolvedValue({ data: {} }),
     logout: mocks.logout
   }
@@ -48,17 +49,6 @@ test('shows an empty focused username field on login', async () => {
   expect(username).toHaveFocus();
 });
 
-test('returns to login after the server confirms logout', async () => {
-  mocks.logout.mockResolvedValueOnce({ ok: true });
-  render(<App />);
-
-  await screen.findByPlaceholderText('Suchen …');
-  fireEvent.click(screen.getByRole('button', { name: 'Benutzermenü' }));
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Logout' }));
-
-  expect(await screen.findByRole('button', { name: 'Anmelden' })).toBeVisible();
-});
-
 test('shows the build version in the info dialog', async () => {
   render(<App />);
 
@@ -69,4 +59,15 @@ test('shows the build version in the info dialog', async () => {
   const dialog = await screen.findByRole('dialog', { name: 'HomeOps Hub' });
   expect(dialog).toHaveTextContent(/Version (development|test)/);
   expect(screen.getByRole('link', { name: 'Repository auf GitHub' })).toHaveAttribute('href', 'https://github.com/Khazaa/HomeOps-Public');
+});
+
+test('returns to login after the server confirms logout', async () => {
+  mocks.logout.mockResolvedValueOnce({ ok: true });
+  render(<App />);
+
+  await screen.findByPlaceholderText('Suchen …');
+  fireEvent.click(screen.getByRole('button', { name: 'Benutzermenü' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Logout' }));
+
+  expect(await screen.findByRole('button', { name: 'Anmelden' })).toBeVisible();
 });

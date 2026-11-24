@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { buildProxyTarget, isPrivateAddress, rewriteProxyHtml, rewriteProxyLocation } from './web-proxy.js';
+import { buildProxyTarget, isPrivateAddress, proxyRequestCookies, rewriteProxyHtml, rewriteProxyLocation, rewriteProxySetCookies } from './web-proxy.js';
 
 describe('web basic auth proxy', () => {
   it('accepts LAN addresses and rejects loopback, link-local metadata and public targets', () => {
-    expect(isPrivateAddress('192.168.50.10')).toBe(true);
+    expect(isPrivateAddress('192.168.23.65')).toBe(true);
     expect(isPrivateAddress('10.2.3.4')).toBe(true);
     expect(isPrivateAddress('172.31.4.5')).toBe(true);
     expect(isPrivateAddress('127.0.0.1')).toBe(false);
@@ -12,12 +12,12 @@ describe('web basic auth proxy', () => {
   });
 
   it('keeps every proxied request on the configured origin', () => {
-    expect(buildProxyTarget('http://192.168.50.10/admin/', '', '?view=1').href).toBe('http://192.168.50.10/admin/?view=1');
-    expect(buildProxyTarget('http://192.168.50.10/admin/', 'assets/app.js', '?v=2').href).toBe('http://192.168.50.10/assets/app.js?v=2');
+    expect(buildProxyTarget('http://192.168.23.65/admin/', '', '?view=1').href).toBe('http://192.168.23.65/admin/?view=1');
+    expect(buildProxyTarget('http://192.168.23.65/admin/', 'assets/app.js', '?v=2').href).toBe('http://192.168.23.65/assets/app.js?v=2');
   });
 
   it('rewrites same-origin links and leaves external links untouched', () => {
-    const target = new URL('http://192.168.50.10/admin/index.html');
+    const target = new URL('http://192.168.23.65/admin/index.html');
     const html = '<html><head></head><body><img src="/logo.png"><a href="settings">Settings</a><a href="https://example.com/">External</a></body></html>';
     const rewritten = rewriteProxyHtml(html, target, '/proxy/');
     expect(rewritten).toContain('<base href="/proxy/admin/">');
@@ -27,8 +27,14 @@ describe('web basic auth proxy', () => {
   });
 
   it('blocks cross-origin redirects from receiving credentials', () => {
-    const target = new URL('http://192.168.50.10/');
+    const target = new URL('http://192.168.23.65/');
     expect(rewriteProxyLocation('/login', target, '/proxy/')).toBe('/proxy/login');
-    expect(rewriteProxyLocation('http://192.168.50.11/login', target, '/proxy/')).toBeNull();
+    expect(rewriteProxyLocation('http://192.168.23.66/login', target, '/proxy/')).toBeNull();
+  });
+
+  it('isolates target cookies and never forwards HomeOps session cookies', () => {
+    expect(proxyRequestCookies('homeops_session=secret; homeops_csrf=csrf; target_session=abc')).toBe('target_session=abc');
+    expect(rewriteProxySetCookies(['target_session=abc; Path=/; Secure; HttpOnly; SameSite=None'], '/api/v1/resources/a/web-proxy/')).toEqual(['target_session=abc; HttpOnly; Path=/api/v1/resources/a/web-proxy/; SameSite=Lax']);
+    expect(rewriteProxySetCookies(['homeops_session=attack; Path=/'], '/proxy/')).toEqual([]);
   });
 });

@@ -18,7 +18,7 @@ import { decryptSecret, encryptSecret, isSafeHost, randomToken, sha256 } from '.
 import { expandPrivateCidr, scanPrivateNetwork } from './network-scan.js';
 import { scanPorts, startScheduledScanner, validTimezone } from './scheduled-scan.js';
 import { applyRdpSettings, RDP_KEYBOARD_LAYOUTS, remoteUsername } from './remote-settings.js';
-import { buildProxyTarget, proxyBasePath, requestBasicAuthTarget, rewriteProxyCss, rewriteProxyHtml, rewriteProxyLocation } from './web-proxy.js';
+import { buildProxyTarget, proxyBasePath, proxyRequestCookies, requestProxyTarget, rewriteProxyCss, rewriteProxyHtml, rewriteProxyLocation, rewriteProxySetCookies } from './web-proxy.js';
 
 const config = loadConfig();
 const db = createDb(config.DATABASE_URL);
@@ -33,7 +33,7 @@ const credentials = z.object({ username: z.string().min(3).max(64), password: z.
 const categoryInput = z.object({ name: z.string().min(1).max(80), icon: z.string().max(50).default('folder'), position: z.number().int().min(0).default(0) });
 const baseResource = { name: z.string().min(1).max(120), notes:z.string().max(4000).default(''), tags:z.array(z.string().trim().min(1).max(40)).max(20).default([]), categoryId: z.string().uuid().nullable().optional(), icon: z.string().max(50).default('link'), position: z.number().int().min(0).default(0), enabled: z.boolean().default(true), secret: z.string().min(1).max(16384).optional(), credentialId: z.string().uuid().nullable().optional() };
 const resourceInput = z.discriminatedUnion('type', [
-  z.object({ ...baseResource, type: z.literal('web'), config: z.object({ url: z.string().url().refine(v => { const url=new URL(v);return ['http:','https:'].includes(url.protocol)&&!url.username&&!url.password; }), mode: z.enum(['embedded','external','auto']).default('auto'), authType:z.enum(['none','basic']).default('none'), sandbox: z.string().default('allow-forms allow-modals allow-popups allow-scripts allow-same-origin') }) }),
+  z.object({ ...baseResource, type: z.literal('web'), config: z.object({ url: z.string().url().refine(v => { const url=new URL(v);return ['http:','https:'].includes(url.protocol)&&!url.username&&!url.password; }), mode: z.enum(['embedded','external','auto','proxy']).default('auto'), authType:z.enum(['none','basic']).default('none'), ignoreCertificate:z.boolean().default(false), sandbox: z.string().default('allow-forms allow-modals allow-popups allow-scripts allow-same-origin') }) }),
   z.object({ ...baseResource, type: z.literal('ssh'), config: z.object({ host: z.string().refine(isSafeHost), port: z.number().int().min(1).max(65535).default(22), username: z.string().max(128).default(''), authType: z.enum(['password','private_key']).default('password'), verifyHostKey: z.boolean().default(true), hostKeyFingerprint: z.string().max(512).default('') }).superRefine((value,ctx)=>{if(value.verifyHostKey&&value.hostKeyFingerprint.length<16)ctx.addIssue({code:'custom',path:['hostKeyFingerprint'],message:'SSH host key is required when verification is enabled'});}) }),
   z.object({ ...baseResource, type: z.literal('rdp'), config: z.object({ host: z.string().refine(isSafeHost), port: z.number().int().min(1).max(65535).default(3389), username: z.string().max(128).default(''), domain: z.string().max(128).optional(), security: z.enum(['any','nla','tls','rdp']).default('nla'), keyboardLayout: z.enum(RDP_KEYBOARD_LAYOUTS).default('en-us-qwerty'), ignoreCertificate: z.boolean().default(false) }) })
 ]);
@@ -172,16 +172,16 @@ app.route({
   handler: async (request, reply) => {
     const params=z.object({id:z.string().uuid(),'*':z.string()}).parse(request.params);
     const resource=await ownedResource(params.id,request.authUser!.id);
-    if(resource.type!=='web'||resource.config.authType!=='basic'||!resource.credential_id)throw app.httpErrors.notFound('WEB_PROXY_NOT_CONFIGURED');
-    const credential=(await db.query('SELECT username,kind,payload,expires_at FROM credentials WHERE id=$1 AND owner_id=$2',[resource.credential_id,resource.owner_id])).rows[0];
-    if(!credential||credential.kind!=='password')throw app.httpErrors.badRequest('CREDENTIAL_REQUIRED');
-    if(credential.expires_at&&new Date(credential.expires_at)<=new Date())throw app.httpErrors.badRequest('CREDENTIAL_EXPIRED');
+    const basicAuth=resource.type==='web'&&resource.config.authType==='basic';
+    if(resource.type!=='web'||(resource.config.mode!=='proxy'&&!basicAuth))throw app.httpErrors.notFound('WEB_PROXY_NOT_CONFIGURED');
+    let username:string|undefined;let password:string|undefined;
+    if(basicAuth){if(!resource.credential_id)throw app.httpErrors.badRequest('CREDENTIAL_REQUIRED');const credential=(await db.query('SELECT username,kind,payload,expires_at FROM credentials WHERE id=$1 AND owner_id=$2',[resource.credential_id,resource.owner_id])).rows[0];if(!credential||credential.kind!=='password')throw app.httpErrors.badRequest('CREDENTIAL_REQUIRED');if(credential.expires_at&&new Date(credential.expires_at)<=new Date())throw app.httpErrors.badRequest('CREDENTIAL_EXPIRED');username=credential.username;password=decryptSecret(credential.payload,config.MASTER_KEY);}
     const queryIndex=request.raw.url?.indexOf('?')??-1;
     const query=queryIndex>=0?request.raw.url!.slice(queryIndex):'';
     const target=buildProxyTarget(String(resource.config.url),params['*'],query);
     const body=request.body===undefined?undefined:Buffer.isBuffer(request.body)?request.body:Buffer.from(typeof request.body==='string'?request.body:JSON.stringify(request.body));
     try {
-      const upstream=await requestBasicAuthTarget(target,request.method,credential.username,decryptSecret(credential.payload,config.MASTER_KEY),body,request.headers['content-type']);
+      const upstream=await requestProxyTarget(target,request.method,{username,password,cookie:proxyRequestCookies(request.headers.cookie),ignoreCertificate:resource.config.ignoreCertificate===true},body,request.headers['content-type']);
       const base=proxyBasePath(params.id);
       if(upstream.statusCode>=300&&upstream.statusCode<400&&upstream.headers.location){
         const location=rewriteProxyLocation(upstream.headers.location,target,base);
@@ -190,6 +190,7 @@ app.route({
       }
       if(upstream.statusCode===401||upstream.statusCode===403)return reply.code(502).type('text/plain; charset=utf-8').send('HTTP-Basic-Anmeldung fehlgeschlagen. Credential prüfen.');
       const contentType=String(upstream.headers['content-type']??'application/octet-stream');
+      const targetCookies=rewriteProxySetCookies(upstream.headers['set-cookie'],base);if(targetCookies.length)reply.header('set-cookie',targetCookies);
       let responseBody:Buffer|string=upstream.body;
       if(contentType.includes('text/html'))responseBody=rewriteProxyHtml(upstream.body.toString('utf8'),target,base);
       else if(contentType.includes('text/css'))responseBody=rewriteProxyCss(upstream.body.toString('utf8'),target,base);

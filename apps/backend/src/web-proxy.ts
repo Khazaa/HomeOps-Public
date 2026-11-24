@@ -31,6 +31,22 @@ export function proxyBasePath(resourceId: string): string {
   return `/api/v1/resources/${encodeURIComponent(resourceId)}/web-proxy/`;
 }
 
+export function proxyRequestCookies(cookieHeader: string | undefined): string | undefined {
+  if (!cookieHeader) return undefined;
+  const filtered = cookieHeader.split(';').map(value => value.trim()).filter(value => value && !/^(?:homeops_session|homeops_csrf)=/i.test(value));
+  return filtered.length ? filtered.join('; ') : undefined;
+}
+
+export function rewriteProxySetCookies(values: string[] | undefined, proxyBase: string): string[] {
+  return (values ?? []).flatMap(value => {
+    const [pair, ...attributes] = value.split(';');
+    const name = pair?.split('=', 1)[0]?.trim();
+    if (!pair || !name || /^(?:homeops_session|homeops_csrf)$/i.test(name)) return [];
+    const safeAttributes = attributes.map(attribute => attribute.trim()).filter(attribute => attribute && !/^(?:domain|path|samesite)=/i.test(attribute) && !/^secure$/i.test(attribute));
+    return [[pair.trim(), ...safeAttributes, `Path=${proxyBase}`, 'SameSite=Lax'].join('; ')];
+  });
+}
+
 export function buildProxyTarget(configuredUrl: string, proxiedPath: string, query = ''): URL {
   const configured = new URL(configuredUrl);
   if (!proxiedPath) {
@@ -70,16 +86,21 @@ export function rewriteProxyLocation(location: string, target: URL, proxyBase: s
   return resolved.origin === target.origin ? `${proxyBase}${resolved.pathname.replace(/^\//, '')}${resolved.search}${resolved.hash}` : null;
 }
 
-export async function requestBasicAuthTarget(target: URL, method: string, username: string, password: string, body?: Buffer, contentType?: string): Promise<ProxyResponse> {
+export async function requestProxyTarget(target: URL, method: string, options: { username?: string; password?: string; cookie?: string; ignoreCertificate?: boolean } = {}, body?: Buffer, contentType?: string): Promise<ProxyResponse> {
   const resolved = await resolvePrivateTarget(target);
   const transport = target.protocol === 'https:' ? https : http;
+  const authorization = options.username !== undefined && options.password !== undefined ? `Basic ${Buffer.from(`${options.username}:${options.password}`, 'utf8').toString('base64')}` : undefined;
   return new Promise((resolve, reject) => {
     const request = transport.request(target, {
       method,
+      rejectUnauthorized: options.ignoreCertificate !== true,
       headers: {
         accept: '*/*',
         'accept-encoding': 'identity',
-        authorization: `Basic ${Buffer.from(`${username}:${password}`, 'utf8').toString('base64')}`,
+        ...(authorization ? { authorization } : {}),
+        ...(options.cookie ? { cookie: options.cookie } : {}),
+        origin: target.origin,
+        referer: target.href,
         'user-agent': 'HomeOps-WebProxy/1.0',
         ...(contentType ? { 'content-type': contentType } : {}),
         ...(body?.length ? { 'content-length': String(body.length) } : {})
@@ -100,4 +121,8 @@ export async function requestBasicAuthTarget(target: URL, method: string, userna
     request.on('error', reject);
     request.end(body);
   });
+}
+
+export async function requestBasicAuthTarget(target: URL, method: string, username: string, password: string, body?: Buffer, contentType?: string): Promise<ProxyResponse> {
+  return requestProxyTarget(target, method, { username, password }, body, contentType);
 }

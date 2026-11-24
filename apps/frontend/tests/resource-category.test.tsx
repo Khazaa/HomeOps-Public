@@ -82,3 +82,9 @@ describe('RDP resource settings', () => {
     })));
   });
 });
+
+describe('web compatibility proxy', () => {
+  it('stores proxy mode and the explicit private-LAN certificate exception', async () => {
+    render(<App />);await screen.findByPlaceholderText('Suchen …');fireEvent.click(screen.getByRole('button',{name:'Ressource'}));const dialog=screen.getByRole('heading',{name:'Ressource anlegen'}).closest('form')!;fireEvent.change(within(dialog).getByLabelText('Name'),{target:{value:'LAN UI'}});fireEvent.change(within(dialog).getByLabelText('URL'),{target:{value:'https://192.168.23.20'}});fireEvent.change(within(dialog).getByLabelText('Einbettungsmodus'),{target:{value:'proxy'}});fireEvent.click(within(dialog).getByLabelText(/selbstsigniertes TLS-Zertifikat/));fireEvent.click(within(dialog).getByRole('button',{name:'Speichern'}));await waitFor(()=>expect(mocks.createResource).toHaveBeenCalledWith(expect.objectContaining({type:'web',config:expect.objectContaining({mode:'proxy',ignoreCertificate:true})})));
+  });
+});

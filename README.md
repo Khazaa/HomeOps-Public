@@ -10,6 +10,7 @@ HomeOps Hub bündelt Weboberflächen, SSH-Terminals und RDP-Desktops in einer ge
 - Persönlicher Credential-Tresor für Web (HTTP Basic), SSH und RDP
 - Direkte Anlage neuer Credentials im jeweiligen Ressourcendialog
 - Direkte Anlage und Zuweisung neuer Gruppen im Ressourcendialog
+- Experimenteller Kompatibilitätsproxy für private LAN-Webseiten mit Frame-Header-, Link-, Redirect- und Cookie-Umschreibung sowie optionaler Ausnahme für selbstsignierte Zertifikate
 - Netzwerkscanner für private IPv4-Netze bis `/23` mit Standard- und benutzerdefinierten Ports, Reverse-DNS-Namen, Duplikaterkennung, frei benennbaren Funden und selektiver Übernahme in eine Gruppe `Scan DD.MM.YYYY HH:mm`
 - Optionaler täglicher Nacht-Scan im Container; neue, noch nicht eingetragene Systeme erscheinen zur bestätigten Übernahme auf der Übersicht
 - SSH-Funde können ohne Benutzer übernommen und später vervollständigt werden; ohne Benutzer blockiert HomeOps den Verbindungsaufbau mit einem klaren Hinweis

@@ -11,7 +11,6 @@ import sensible from '@fastify/sensible';
 import staticPlugin from '@fastify/static';
 import argon2 from 'argon2';
 import { z } from 'zod';
-import GuacamoleLite from 'guacamole-lite';
 import { loadConfig } from './config.js';
 import { createDb, migrate } from './db.js';
 import { decryptSecret, encryptSecret, isSafeHost, randomToken, sha256 } from './security.js';
@@ -20,6 +19,7 @@ import { scanPorts, startScheduledScanner, validTimezone } from './scheduled-sca
 import { applyRdpSettings, RDP_KEYBOARD_LAYOUTS, remoteUsername } from './remote-settings.js';
 import { buildProxyTarget, proxyBasePath, proxyRequestCookies, requestProxyTarget, rewriteProxyCss, rewriteProxyHtml, rewriteProxyLocation, rewriteProxySetCookies } from './web-proxy.js';
 import { attachSshTunnel, SshTicketStore } from './ssh-tunnel.js';
+import { createGuacamoleTunnel } from './guacamole-tunnel.js';
 
 const config = loadConfig();
 const db = createDb(config.DATABASE_URL);
@@ -268,7 +268,7 @@ async function bootstrap() {
     return user?{userId:user.user_id}:undefined;
   },updateAudit:async(auditId,userId,ok,code)=>{await db.query('UPDATE connection_audit SET ok=$1,code=$2 WHERE id=$3 AND user_id=$4',[ok,code,auditId,userId]);},log:app.log});
   const verifyClient=(info:any,done:(ok:boolean,code?:number,message?:string)=>void)=>{void(async()=>{try{if(info.origin!==config.APP_ORIGIN)throw new Error('origin');const cookies=Object.fromEntries(String(info.req.headers.cookie??'').split(';').map((v:string)=>v.trim().split('=')));const session=cookies.homeops_session;if(!session)throw new Error('session');const user=(await db.query('SELECT user_id FROM sessions WHERE token_hash=$1 AND expires_at>now()',[sha256(session)])).rows[0];if(!user)throw new Error('session');const token=new URL(info.req.url,'http://local').searchParams.get('token');if(!token)throw new Error('ticket');const ticket=decryptGuacToken(token);if(ticket.expiration<Date.now()||ticket.userId!==user.user_id||!unusedTickets.delete(ticket.nonce))throw new Error('ticket');if(ticket.auditId)await db.query('UPDATE connection_audit SET ok=true,code=$1 WHERE id=$2 AND user_id=$3',['TUNNEL_OPENED',ticket.auditId,user.user_id]);done(true)}catch(error){app.log.warn({reason:error instanceof Error?error.message:'unknown'},'Rejected Guacamole WebSocket');done(false,403,'Forbidden')}})()};
-  const guacamole=new GuacamoleLite({noServer:true,verifyClient}, {host:config.GUACD_HOST,port:config.GUACD_PORT}, {crypt:{cypher:'AES-256-CBC',key:config.GUAC_TOKEN_KEY.padEnd(32,'0').slice(0,32)}}, {processConnectionSettings:(settings:any,callback:any)=>settings.expiration<Date.now()?callback(new Error('Ticket expired')):callback(null,settings)});
+  const guacamole=createGuacamoleTunnel({verifyClient,guacdHost:config.GUACD_HOST,guacdPort:config.GUACD_PORT,tokenKey:config.GUAC_TOKEN_KEY.padEnd(32,'0').slice(0,32),processConnectionSettings:(settings:any,callback:any)=>settings.expiration<Date.now()?callback(new Error('Ticket expired')):callback(null,settings)});
   const guacamoleSockets=guacamole.webSocketServer;
   app.server.on('upgrade',(request,socket,head)=>{
     if(sshTunnel.accepts(request)){sshTunnel.handleUpgrade(request,socket,head);return;}

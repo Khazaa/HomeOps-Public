@@ -83,7 +83,7 @@ curl http://192.168.1.10:3000/health
 
 HomeOps anschließend exakt über die in `APP_ORIGIN` eingetragene Adresse öffnen. Im direkten LAN-Modus gelten `TRUST_PROXY=false` und `COOKIE_SECURE=false`. Es muss weder für HomeOps noch für jedes Zielgerät ein nginx-Eintrag angelegt werden. Die Firewall sollte Port 3000 nur für das eigene LAN oder VPN freigeben.
 
-Optional kann HomeOps weiterhin hinter einem HTTPS-Reverse-Proxy betrieben werden. Dann `APP_ORIGIN` auf dessen HTTPS-Adresse, `HOMEOPS_BIND_ADDRESS=127.0.0.1`, `TRUST_PROXY=true` und `COOKIE_SECURE=true` setzen. Der Proxy muss WebSocket-Upgrades für `/api/v1/tunnel` erlauben.
+Optional kann HomeOps weiterhin hinter einem HTTPS-Reverse-Proxy betrieben werden. Dann `APP_ORIGIN` auf dessen HTTPS-Adresse, `HOMEOPS_BIND_ADDRESS=127.0.0.1`, `TRUST_PROXY=true` und `COOKIE_SECURE=true` setzen. Der Proxy muss WebSocket-Upgrades für `/api/v1/tunnel` und `/api/v1/ssh` erlauben.
 
 Nach der ersten erfolgreichen Anmeldung `ADMIN_INITIAL_PASSWORD=` in `.env` setzen und den Web-Container neu erstellen:
 
@@ -120,9 +120,9 @@ Für HTTP-Basic-Ziele im LAN steht ein isolierter Backend-Proxy zur Verfügung. 
 
 ### SSH
 
-SSH unterstützt Passwort und Private Key. Die Host-Key-Prüfung ist standardmäßig aktiv und erwartet einen Eintrag im OpenSSH-`known_hosts`-Format. Ein geänderter Schlüssel wird abgelehnt.
+SSH verwendet ein xterm.js-Terminal mit einem serverseitigen SSH-Client und unterstützt Passwort sowie Private Key. Die Host-Key-Prüfung ist standardmäßig aktiv und erwartet einen Eintrag im OpenSSH-`known_hosts`-Format. Ein geänderter Schlüssel wird vor dem Shell-Start abgelehnt.
 
-Text aus der lokalen Zwischenablage kann in verbundenen SSH- und RDP-Tabs mit `Strg+V` oder `Strg+Shift+V` eingefügt werden. SSH und RDP passen ihre Remote-Anzeige an Größenänderungen des Tabs an. Die Bedienung ist für aktuelle Versionen von Firefox, Chrome und Edge ausgelegt.
+SSH nutzt die native xterm.js-Eingabe; Auswahl, Scrollback sowie `Strg+V` oder `Strg+Shift+V` funktionieren direkt im Terminal. RDP synchronisiert eingefügten Text weiterhin über Guacamole. SSH und RDP passen ihre Remote-Anzeige an Größenänderungen des Tabs an. Die Bedienung ist für aktuelle Versionen von Firefox, Chrome und Edge ausgelegt.
 
 ### RDP
 

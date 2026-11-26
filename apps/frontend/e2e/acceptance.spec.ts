@@ -338,7 +338,7 @@ test('A-03/A-06/A-09 CRUD, safe external mode and SSH host-key rejection', async
     await page.getByRole('button', { name: /Acceptance SSH/ }).click();
     const panel = page.locator('.tab-panel:not([hidden])');
     await panel.getByRole('button', { name: 'Verbinden' }).click();
-    await expect(panel.getByText('Getrennt', { exact: true })).toBeVisible({ timeout: 10_000 });
+    await expect(panel.getByText('Fehler', { exact: true })).toBeVisible({ timeout: 10_000 });
     await expect(panel.getByText('Verbunden', { exact: true })).toHaveCount(0);
   } finally {
     expect((await api.patch(`/api/v1/resources/${ssh.id}`, { headers, data: { config: ssh.config } })).ok()).toBeTruthy();
@@ -366,6 +366,15 @@ test('A-16 logout invalidates REST and WebSocket access', async ({ page }) => {
     setTimeout(() => resolve('timeout'), 5_000);
   }));
   expect(socketResult).toBe('rejected');
+  const sshSocketResult = await page.evaluate(() => new Promise<string>(resolve => {
+    const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+    const socket = new WebSocket(`${scheme}://${location.host}/api/v1/ssh?token=invalid`);
+    socket.onopen = () => resolve('opened');
+    socket.onerror = () => resolve('rejected');
+    socket.onclose = () => resolve('rejected');
+    setTimeout(() => resolve('timeout'), 5_000);
+  }));
+  expect(sshSocketResult).toBe('rejected');
 });
 
 test('A-12 object authorization denies an unprivileged user', async ({ page, baseURL }) => {

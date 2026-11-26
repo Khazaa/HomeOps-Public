@@ -4,6 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": { "dev": "tsx watch src/server.ts", "build": "tsc -p tsconfig.json", "start": "node dist/server.js", "typecheck": "tsc -p tsconfig.json --noEmit", "test": "vitest run src" },
-  "dependencies": { "@fastify/cookie": "latest", "@fastify/helmet": "latest", "@fastify/rate-limit": "latest", "@fastify/sensible": "latest", "@fastify/static": "latest", "argon2": "latest", "fastify": "latest", "guacamole-lite": "1.2.0", "pg": "latest", "zod": "latest" },
-  "devDependencies": { "@types/node": "latest", "@types/pg": "latest", "tsx": "latest", "typescript": "latest", "vitest": "latest" }
+  "dependencies": { "@fastify/cookie": "latest", "@fastify/helmet": "latest", "@fastify/rate-limit": "latest", "@fastify/sensible": "latest", "@fastify/static": "latest", "argon2": "latest", "fastify": "latest", "guacamole-lite": "1.2.0", "pg": "latest", "ssh2": "latest", "ws": "latest", "zod": "latest" },
+  "devDependencies": { "@types/node": "latest", "@types/pg": "latest", "@types/ssh2": "latest", "@types/ws": "latest", "tsx": "latest", "typescript": "latest", "vitest": "latest" }
 }

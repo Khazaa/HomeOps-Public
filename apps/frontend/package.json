@@ -11,6 +11,9 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@xterm/addon-fit": "latest",
+    "@xterm/addon-web-links": "latest",
+    "@xterm/xterm": "6.0.0",
     "guacamole-common-js": "latest",
     "react": "latest",
     "react-dom": "latest"

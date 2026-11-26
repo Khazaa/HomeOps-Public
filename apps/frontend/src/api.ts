@@ -26,6 +26,6 @@ export const api={
   updateCategory:(id:string,body:unknown)=>request<Category>(`/api/v1/categories/${id}`,{method:'PATCH',body:JSON.stringify(body)}),
   deleteCategory:(id:string)=>request(`/api/v1/categories/${id}`,{method:'DELETE'}),
   testResource:(id:string)=>request<{ok:boolean;code:string;message:string}>(`/api/v1/resources/${id}/test`,{method:'POST'}),
-  connect:(id:string,secret:string|undefined,width:number,height:number,credentialId?:string)=>request<{token:string;expiresIn:number;protocol:string}>(`/api/v1/resources/${id}/connect`,{method:'POST',body:JSON.stringify({secret,width,height,credentialId})}),
+  connect:(id:string,secret:string|undefined,width:number,height:number,credentialId?:string,cols?:number,rows?:number)=>request<{token:string;expiresIn:number;protocol:string}>(`/api/v1/resources/${id}/connect`,{method:'POST',body:JSON.stringify({secret,width,height,credentialId,cols,rows})}),
   preferences:()=>request<{data:Record<string,unknown>}>('/api/v1/preferences'), savePreferences:(data:unknown)=>request('/api/v1/preferences',{method:'PUT',body:JSON.stringify(data)})
 };

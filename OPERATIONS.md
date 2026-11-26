@@ -21,4 +21,4 @@ Ein Git-Tag `v*` löst in GitHub Actions den Multi-Arch-Build nach GHCR aus. Das
 
 ## Optionaler Reverse Proxy
 
-Für direkten LAN-Betrieb ist kein Reverse Proxy notwendig. Optional TLS terminieren, WebSocket-Upgrades für `/api/v1/tunnel` erlauben, Querystrings dort nicht in Access-Logs schreiben und Request-/Response-Buffering deaktivieren. `X-Forwarded-Proto`/`Host` korrekt setzen. Weder Port 4822 noch 5432 veröffentlichen.
+Für direkten LAN-Betrieb ist kein Reverse Proxy notwendig. Optional TLS terminieren, WebSocket-Upgrades für `/api/v1/tunnel` und `/api/v1/ssh` erlauben, Querystrings dort nicht in Access-Logs schreiben und Request-/Response-Buffering deaktivieren. `X-Forwarded-Proto`/`Host` korrekt setzen. Weder Port 4822 noch 5432 veröffentlichen.

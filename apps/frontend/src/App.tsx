@@ -3,6 +3,7 @@ import { api } from './api';
 import { BrandMark, Icon } from './Icons';
 import { randomId } from './randomId';
 import { RemoteTab } from './RemoteTab';
+import { SshTab } from './SshTab';
 import type { AuditEvent, Category, Credential, NetworkScanResult, NetworkScanSchedule, Resource, ResourceType, Tab } from './types';
 import { WebTab } from './WebTab';
 
@@ -563,7 +564,7 @@ export function App() {
         {tabs.map(tab => {
           const resource = resources.find(entry => entry.id === tab.resourceId);
           return resource ? <section className="tab-panel" hidden={tab.id !== active} key={`${tab.id}:${tabRevisions[tab.id] ?? 0}`}>
-            {resource.type === 'web' ? <WebTab resource={resource} /> : <RemoteTab resource={resource} credentials={credentials} active={tab.id === active} onResourceUpdated={refresh} />}
+            {resource.type === 'web' ? <WebTab resource={resource} /> : resource.type === 'ssh' ? <SshTab resource={resource} credentials={credentials} active={tab.id === active} onResourceUpdated={refresh} /> : <RemoteTab resource={resource} credentials={credentials} active={tab.id === active} onResourceUpdated={refresh} />}
           </section> : null;
         })}
       </div>

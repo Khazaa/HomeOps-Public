@@ -17,7 +17,7 @@ Jede Installation erzeugt eine eigene Datenbank und eigene Secrets. `.env`, Date
 
 Der veröffentlichte Port bindet gezielt an `HOMEOPS_BIND_ADDRESS`; `0.0.0.0` wird vom Bootstrap-Skript nicht akzeptiert. PostgreSQL und guacd besitzen keinen Hostport. Im HTTP-Modus sind Anmeldung und eingegebene Zugangsdaten auf dem LAN-Transportweg unverschlüsselt.
 
-Optional kann ein HTTPS-Reverse-Proxy verwendet werden. Dann `APP_ORIGIN` auf dessen HTTPS-Adresse, `HOMEOPS_BIND_ADDRESS=127.0.0.1`, `TRUST_PROXY=true` und `COOKIE_SECURE=true` setzen. Der Proxy muss WebSocket-Upgrades für `/api/v1/tunnel` erlauben. Für die eingebundenen Zielgeräte werden keine eigenen Proxy-Einträge benötigt.
+Optional kann ein HTTPS-Reverse-Proxy verwendet werden. Dann `APP_ORIGIN` auf dessen HTTPS-Adresse, `HOMEOPS_BIND_ADDRESS=127.0.0.1`, `TRUST_PROXY=true` und `COOKIE_SECURE=true` setzen. Der Proxy muss WebSocket-Upgrades für `/api/v1/tunnel` und `/api/v1/ssh` erlauben. Für die eingebundenen Zielgeräte werden keine eigenen Proxy-Einträge benötigt.
 
 ## Update
 

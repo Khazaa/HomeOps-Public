@@ -58,9 +58,9 @@ test('finetuning interactions stay compact, unambiguous and persistent', async (
     await page.reload();
     await page.getByRole('button', { name: 'Ressource', exact: true }).click();
     await page.getByLabel('Typ').selectOption('rdp');
-    await expect(page.getByLabel('Globale Zugangsdaten').locator('option[value="__new__"]')).toHaveText('＋ Neu anlegen …');
+    await expect(page.getByLabel('Anmeldequelle').locator('option[value="__new__"]')).toHaveText('＋ Neues globales Credential …');
     await page.getByLabel('Typ').selectOption('ssh');
-    const select = page.getByLabel('Globale Zugangsdaten');
+    const select = page.getByLabel('Anmeldequelle');
     await expect(select.locator('option[value="__new__"]')).toHaveText('＋ Neu anlegen …');
     await expect(select.locator(`option[value="${credential.id}"]`)).toHaveText('Server A · root');
     await select.selectOption(credential.id);

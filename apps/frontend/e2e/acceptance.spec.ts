@@ -233,7 +233,9 @@ test('A-03/A-06/A-09 CRUD, safe external mode and SSH host-key rejection', async
     await sshWithoutSecretRow.getByLabel('Aktionen').click();
     await sshWithoutSecretRow.getByRole('button', { name: 'Bearbeiten' }).click();
     const sshEditor = page.getByRole('heading', { name: 'Ressource bearbeiten' }).locator('..');
-    await sshEditor.getByLabel('Secret (optional gespeichert)').fill(sshPassword!);
+    await expect(sshEditor.getByLabel('Typ')).toBeDisabled();
+    await expect(sshEditor.getByText('Der Ressourcentyp kann nach dem Anlegen nicht geändert werden.')).toBeVisible();
+    await sshEditor.getByLabel('Passwort (optional)').fill(sshPassword!);
     await sshEditor.getByRole('button', { name: 'Speichern' }).click();
     await expect(page.getByRole('heading', { name: 'Ressource bearbeiten' })).toHaveCount(0);
     const updatedSsh = (await (await api.get('/api/v1/resources')).json()).find((entry: { id: string }) => entry.id === unverifiedSshResource.id);
@@ -265,7 +267,7 @@ test('A-03/A-06/A-09 CRUD, safe external mode and SSH host-key rejection', async
     const sharedCredentialRow = page.locator('.resource').filter({ hasText: 'SSH with shared credential' });
     await sharedCredentialRow.getByLabel('Aktionen').click();
     await sharedCredentialRow.getByRole('button', { name: 'Bearbeiten' }).click();
-    const credentialSelect = page.getByRole('heading', { name: 'Ressource bearbeiten' }).locator('..').getByLabel('Globale Zugangsdaten');
+    const credentialSelect = page.getByRole('heading', { name: 'Ressource bearbeiten' }).locator('..').getByLabel('Anmeldequelle');
     await expect(credentialSelect).toHaveValue(sharedCredential.id);
     await expect(credentialSelect.locator(`option[value="${sharedCredential.id}"]`)).toHaveText('Acceptance Shared Password');
     await page.getByRole('heading', { name: 'Ressource bearbeiten' }).locator('..').getByRole('button', { name: 'Abbrechen' }).click();

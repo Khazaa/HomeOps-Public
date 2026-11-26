@@ -1039,7 +1039,7 @@ function ResourceEditor({ resource, categories, credentials, onCancel, onSaved }
 
   return <div className="modal"><form className="resource-editor" onSubmit={submit}>
     <header><h2>{resource ? 'Ressource bearbeiten' : 'Ressource anlegen'}</h2></header><div className="resource-editor-body">
-    <label>Typ<select value={type} disabled={Boolean(resource)} onChange={event => {
+    <label>Typ<select value={type} disabled={Boolean(resource)} aria-describedby={resource ? 'resource-type-hint' : undefined} onChange={event => {
       const nextType = event.target.value as ResourceType;
       setType(nextType);
       setPort(nextType === 'ssh' ? '22' : nextType === 'rdp' ? '3389' : '');
@@ -1047,6 +1047,7 @@ function ResourceEditor({ resource, categories, credentials, onCancel, onSaved }
       setCreatingCredential(false);
       setNewCredentialSecret('');
     }}><option value="web">Web</option><option value="ssh">SSH</option><option value="rdp">RDP</option></select></label>
+    {resource && <small className="field-hint" id="resource-type-hint">Der Ressourcentyp kann nach dem Anlegen nicht geändert werden.</small>}
     <label>Name<input required value={name} onChange={event => setName(event.target.value)} /></label>
     <label>Notizen (optional)<textarea maxLength={4000} rows={4} value={notes} onChange={event => setNotes(event.target.value)} placeholder="Zweck, Hinweise oder Dokumentationslink …" /></label>
     <label>Tags (kommagetrennt)<input value={tags} onChange={event => setTags(event.target.value)} placeholder="z. B. Produktion, Linux, Kritisch" /></label>
@@ -1069,10 +1070,24 @@ function ResourceEditor({ resource, categories, credentials, onCancel, onSaved }
     </>}
     {type !== 'web' && <>
       <label>Port<input required type="number" min="1" max="65535" value={port} onChange={event => setPort(event.target.value)} /></label>
-      <label>Benutzer (optional)<input disabled={Boolean(credentialId) || creatingCredential} value={username} onChange={event => setUsername(event.target.value)} /></label>
-      {type === 'ssh' && !username.trim() && !credentialId && !creatingCredential && <div className="security-info">Die Ressource kann unvollständig gespeichert werden. Vor der ersten SSH-Verbindung muss hier oder über globale Zugangsdaten ein Benutzer hinterlegt werden.</div>}
+      {type === 'ssh' && <label>Authentifizierung<select value={authType} onChange={event => { setAuthType(event.target.value); setCredentialId(''); setCreatingCredential(false); setNewCredentialSecret(''); }}><option value="password">Passwort</option><option value="private_key">Private Key</option></select></label>}
+      <fieldset className="credential-section"><legend>Anmeldung</legend>
+      <label>Anmeldequelle<select value={creatingCredential ? '__new__' : credentialId} onChange={event => { const id = event.target.value; if (id === '__new__') { setCreatingCredential(true); if (!newCredentialName) setNewCredentialName(`${name || type.toUpperCase()} · ${authType === 'private_key' ? 'Private Key' : 'Zugang'}`); } else { setCreatingCredential(false); setNewCredentialSecret(''); setCredentialId(id); const selected = credentials.find(credential => credential.id === id); if (selected) setUsername(selected.username); } }}><option value="">In dieser Ressource hinterlegen</option><option value="__new__">＋ Neues globales Credential …</option><optgroup label="Globale Credentials">{credentials.filter(credential => credential.kind === (type === 'ssh' && authType === 'private_key' ? 'private_key' : 'password') && (credential.id === credentialId || !credential.expiresAt || new Date(credential.expiresAt) > new Date())).map(credential => <option key={credential.id} value={credential.id}>{credential.name}{credential.expiresAt && new Date(credential.expiresAt) <= new Date() ? ' (abgelaufen)' : ''}</option>)}</optgroup></select></label>
+      {creatingCredential
+        ? <><div className="inline-credential-fields">
+          <label>Bezeichnung<input required maxLength={120} value={newCredentialName} onChange={event => setNewCredentialName(event.target.value)} placeholder="z. B. Server A · root" /></label>
+          <label>Benutzername<input required maxLength={128} autoComplete="username" value={newCredentialUsername} onChange={event => setNewCredentialUsername(event.target.value)} /></label>
+          <label>{type === 'ssh' && authType === 'private_key' ? 'Private Key' : 'Passwort'}<textarea required rows={type === 'ssh' && authType === 'private_key' ? 7 : 2} value={newCredentialSecret} onChange={event => setNewCredentialSecret(event.target.value)} autoComplete="off" /></label>
+        </div><div className="security-info">Das Credential wird global gespeichert und direkt mit dieser Ressource verknüpft.</div></>
+        : credentialId
+          ? <div className="security-info">Benutzername und Secret werden vollständig aus dem ausgewählten globalen Credential übernommen.</div>
+          : <>
+            <label>Benutzername{type === 'rdp' ? ' (optional)' : ''}<input value={username} onChange={event => setUsername(event.target.value)} /></label>
+            {type === 'ssh' && !username.trim() && <div className="security-info">Vor der ersten SSH-Verbindung muss ein Benutzername hinterlegt werden.</div>}
+            <label>{resource?.hasLocalSecret ? 'Secret ersetzen (optional)' : type === 'ssh' && authType === 'private_key' ? 'Private Key (optional)' : 'Passwort (optional)'}<input type="password" value={secret} onChange={event => setSecret(event.target.value)} /></label>
+          </>}
+      </fieldset>
       {type === 'ssh' ? <>
-        <label>Authentifizierung<select value={authType} onChange={event => { setAuthType(event.target.value); setCredentialId(''); setCreatingCredential(false); setNewCredentialSecret(''); }}><option value="password">Passwort</option><option value="private_key">Private Key</option></select></label>
         <label className="checkbox"><input type="checkbox" checked={verifyHostKey} onChange={event => setVerifyHostKey(event.target.checked)} /> SSH Host-Key prüfen (empfohlen)</label>
         {verifyHostKey
           ? <label>SSH Host-Key (known_hosts-Format)<input required value={hostKey} onChange={event => setHostKey(event.target.value)} placeholder="[host]:22 ssh-ed25519 AAAA…" /></label>
@@ -1084,16 +1099,6 @@ function ResourceEditor({ resource, categories, credentials, onCancel, onSaved }
         <div className="security-info">Das Layout muss dem in der Windows-Sitzung verwendeten Tastaturlayout entsprechen. Änderungen gelten nach dem Neuverbinden.</div>
         <label className="checkbox"><input type="checkbox" checked={ignoreCertificate} onChange={event => setIgnoreCertificate(event.target.checked)} /> Zertifikatsprüfung für diese Ressource ausnahmsweise deaktivieren</label>
       </>}
-      <label>Globale Zugangsdaten<select value={creatingCredential ? '__new__' : credentialId} onChange={event => { const id = event.target.value; if (id === '__new__') { setCreatingCredential(true); if (!newCredentialName) setNewCredentialName(`${name || type.toUpperCase()} · ${authType === 'private_key' ? 'Private Key' : 'Zugang'}`); } else { setCreatingCredential(false); setNewCredentialSecret(''); setCredentialId(id); const selected = credentials.find(credential => credential.id === id); if (selected) setUsername(selected.username); } }}><option value="">Keine / ressourceneigen</option><option value="__new__">＋ Neu anlegen …</option><optgroup label="Vorhandene Credentials">{credentials.filter(credential => credential.kind === (type === 'ssh' && authType === 'private_key' ? 'private_key' : 'password') && (credential.id === credentialId || !credential.expiresAt || new Date(credential.expiresAt) > new Date())).map(credential => <option key={credential.id} value={credential.id}>{credential.name}{credential.expiresAt && new Date(credential.expiresAt) <= new Date() ? ' (abgelaufen)' : ''}</option>)}</optgroup></select></label>
-      {creatingCredential
-        ? <><div className="inline-credential-fields">
-          <label>Bezeichnung<input required maxLength={120} value={newCredentialName} onChange={event => setNewCredentialName(event.target.value)} placeholder="z. B. Server A · root" /></label>
-          <label>Benutzername<input required maxLength={128} autoComplete="username" value={newCredentialUsername} onChange={event => setNewCredentialUsername(event.target.value)} /></label>
-          <label>{type === 'ssh' && authType === 'private_key' ? 'Private Key' : 'Passwort'}<textarea required rows={type === 'ssh' && authType === 'private_key' ? 7 : 2} value={newCredentialSecret} onChange={event => setNewCredentialSecret(event.target.value)} autoComplete="off" /></label>
-        </div><div className="security-info">Die Zugangsdaten werden global gespeichert und direkt mit dieser Ressource verknüpft.</div></>
-        : credentialId
-          ? <div className="security-info">Benutzername und Secret werden aus dem globalen Credential übernommen und nicht in diese Ressource kopiert.</div>
-          : <label>{resource?.hasLocalSecret ? 'Ressourceneigenes Secret ersetzen (optional)' : 'Secret (optional gespeichert)'}<input type="password" value={secret} onChange={event => setSecret(event.target.value)} /></label>}
     </>}
     <label>Gruppe<select value={creatingCategory ? '__new__' : categoryId} onChange={event => { if (event.target.value === '__new__') { setCreatingCategory(true); } else { setCreatingCategory(false); setNewCategoryName(''); setCategory(event.target.value); } }}><option value="">Ohne</option><option value="__new__">＋ Neu anlegen …</option>{categories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
     {creatingCategory && <div className="inline-credential-fields"><label>Neue Gruppe<input required maxLength={80} value={newCategoryName} onChange={event => setNewCategoryName(event.target.value)} placeholder="z. B. Smart Home" /></label><div className="security-info">Die Gruppe wird beim Speichern angelegt und dieser Ressource direkt zugewiesen.</div></div>}

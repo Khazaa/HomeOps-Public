@@ -57,6 +57,10 @@ type TunnelDependencies = {
   log: { warn(data: unknown, message: string): void };
 };
 
+export function isSshTunnelPath(pathname: string) {
+  return pathname === '/api/v1/tunnel/ssh' || pathname === '/api/v1/ssh';
+}
+
 function send(socket: WebSocket, message: Record<string, unknown>) {
   if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
 }
@@ -71,7 +75,7 @@ export function attachSshTunnel(server: HttpServer, dependencies: TunnelDependen
 
   server.on('upgrade', (request, socket, head) => {
     const url = new URL(request.url ?? '/', 'http://local');
-    if (url.pathname !== '/api/v1/ssh') return;
+    if (!isSshTunnelPath(url.pathname)) return;
     void (async () => {
       try {
         if (request.headers.origin !== dependencies.origin) return closeUpgrade(socket);

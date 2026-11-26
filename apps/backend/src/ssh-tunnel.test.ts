@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { knownHostKeyMatches, SshTicketStore } from './ssh-tunnel.js';
+import { isSshTunnelPath, knownHostKeyMatches, SshTicketStore } from './ssh-tunnel.js';
+
+describe('SSH tunnel path', () => {
+  it('uses the established tunnel prefix and keeps the initial path as an alias', () => {
+    expect(isSshTunnelPath('/api/v1/tunnel/ssh')).toBe(true);
+    expect(isSshTunnelPath('/api/v1/ssh')).toBe(true);
+    expect(isSshTunnelPath('/api/v1/tunnel')).toBe(false);
+  });
+});
 
 describe('SSH tunnel tickets', () => {
   const ticket = { userId: 'user-1', auditId: 'audit-1', host: 'server.lan', port: 22, username: 'root', authType: 'password' as const, secret: 'secret', verifyHostKey: true, hostKey: 'server.lan ssh-ed25519 AQID', cols: 80, rows: 24 };

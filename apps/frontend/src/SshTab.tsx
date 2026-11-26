@@ -81,7 +81,7 @@ export const SshTab = memo(function SshTab({ resource, credentials, active, onRe
       const rect = terminalHost.current.getBoundingClientRect();
       const ticket = await api.connect(resource.id, secret || undefined, Math.max(320, Math.floor(rect.width)), Math.max(200, Math.floor(rect.height)), temporaryCredentialId, terminal.current.cols, terminal.current.rows);
       const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
-      const webSocket = new WebSocket(`${scheme}://${location.host}/api/v1/tunnel/ssh?token=${encodeURIComponent(ticket.token)}`);
+      const webSocket = new WebSocket(`${scheme}://${location.host}/api/v1/tunnel?transport=ssh&token=${encodeURIComponent(ticket.token)}`);
       socket.current = webSocket;
       webSocket.onopen = () => recordDiagnostic('info', 'SSH-WebSocket geöffnet');
       webSocket.onmessage = event => {

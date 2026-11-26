@@ -1,11 +1,37 @@
 import { describe, expect, it } from 'vitest';
-import { isSshTunnelPath, knownHostKeyMatches, SshTicketStore } from './ssh-tunnel.js';
+import { createServer } from 'node:http';
+import { WebSocket } from 'ws';
+import { attachSshTunnel, isSshTunnelRequest, knownHostKeyMatches, SshTicketStore } from './ssh-tunnel.js';
 
 describe('SSH tunnel path', () => {
   it('uses the established tunnel prefix and keeps the initial path as an alias', () => {
-    expect(isSshTunnelPath('/api/v1/tunnel/ssh')).toBe(true);
-    expect(isSshTunnelPath('/api/v1/ssh')).toBe(true);
-    expect(isSshTunnelPath('/api/v1/tunnel')).toBe(false);
+    expect(isSshTunnelRequest(new URL('https://homeops.test/api/v1/tunnel?transport=ssh&token=x'))).toBe(true);
+    expect(isSshTunnelRequest(new URL('https://homeops.test/api/v1/tunnel/ssh?token=x'))).toBe(true);
+    expect(isSshTunnelRequest(new URL('https://homeops.test/api/v1/ssh?token=x'))).toBe(true);
+    expect(isSshTunnelRequest(new URL('https://homeops.test/api/v1/tunnel?token=x'))).toBe(false);
+  });
+
+  it('upgrades an authenticated SSH connection on the exact shared tunnel path', async () => {
+    const server=createServer();
+    const tickets=new SshTicketStore();
+    const auditCodes:string[]=[];
+    const tunnel=attachSshTunnel(undefined,{origin:'http://homeops.test',tickets,authenticate:async()=>({userId:'user-1'}),updateAudit:async(_auditId,_userId,_ok,code)=>{auditCodes.push(code);},log:{warn(){}}});
+    server.on('upgrade',(request,socket,head)=>tunnel.accepts(request)?tunnel.handleUpgrade(request,socket,head):socket.destroy());
+    await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
+    const address=server.address();
+    if(!address||typeof address==='string')throw new Error('Test server did not bind to TCP');
+    const token=tickets.issue({userId:'user-1',auditId:'audit-1',host:'127.0.0.1',port:1,username:'test',authType:'password',secret:'test',verifyHostKey:false,hostKey:'',cols:80,rows:24});
+    const socket=new WebSocket(`ws://127.0.0.1:${address.port}/api/v1/tunnel?transport=ssh&token=${token}`,{origin:'http://homeops.test'});
+    try {
+      await new Promise<void>((resolve,reject)=>{socket.once('open',resolve);socket.once('error',reject);});
+      expect(socket.readyState).toBe(WebSocket.OPEN);
+      await new Promise(resolve=>setTimeout(resolve,10));
+      expect(auditCodes).toContain('SSH_TUNNEL_OPENED');
+    } finally {
+      socket.close();
+      await new Promise<void>(resolve=>server.close(()=>resolve()));
+      tunnel.webSockets.close();
+    }
   });
 });
 

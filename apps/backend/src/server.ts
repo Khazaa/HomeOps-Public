@@ -245,5 +245,36 @@ app.get('/api/v1/audit', { preHandler:authenticate }, async request => ({events:
 app.get('/api/v1/preferences', { preHandler: authenticate }, async request => ({data:(await db.query('SELECT data FROM user_preferences WHERE user_id=$1',[request.authUser!.id])).rows[0]?.data??{}}));
 app.put('/api/v1/preferences', { preHandler: [authenticate, requireCsrf] }, async request => {const data=z.record(z.string(),z.unknown()).parse(request.body);await db.query('INSERT INTO user_preferences(user_id,data) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET data=$2,updated_at=now()',[request.authUser!.id,data]);return {data};});
 
-async function bootstrap() { await migrate(db); startScheduledScanner(db,app.log); if(config.ADMIN_INITIAL_PASSWORD){const found=await db.query('SELECT 1 FROM users LIMIT 1');if(!found.rowCount){await db.query('INSERT INTO users(username,password_hash,role) VALUES($1,$2,$3)',[config.ADMIN_USERNAME,await argon2.hash(config.ADMIN_INITIAL_PASSWORD,{type:argon2.argon2id}), 'admin']);app.log.warn('Initial admin created; remove ADMIN_INITIAL_PASSWORD from the environment');}} const publicDir=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../frontend/dist'); await app.register(staticPlugin,{root:publicDir,wildcard:false});app.setNotFoundHandler((request,reply)=>request.url.startsWith('/api/')?reply.code(404).send({error:'NOT_FOUND'}):reply.sendFile('index.html')); await app.listen({host:'0.0.0.0',port:config.PORT}); attachSshTunnel(app.server,{origin:config.APP_ORIGIN,tickets:sshTickets,authenticate:async request=>{const cookies=Object.fromEntries(String(request.headers.cookie??'').split(';').map(value=>{const [name,...parts]=value.trim().split('=');return [name,parts.join('=')];}));const session=cookies.homeops_session;if(!session)return undefined;const user=(await db.query('SELECT user_id FROM sessions WHERE token_hash=$1 AND expires_at>now()',[sha256(session)])).rows[0];return user?{userId:user.user_id}:undefined;},updateAudit:async(auditId,userId,ok,code)=>{await db.query('UPDATE connection_audit SET ok=$1,code=$2 WHERE id=$3 AND user_id=$4',[ok,code,auditId,userId]);},log:app.log}); const verifyClient=(info:any,done:(ok:boolean,code?:number,message?:string)=>void)=>{void(async()=>{try{if(info.origin!==config.APP_ORIGIN)throw new Error('origin');const cookies=Object.fromEntries(String(info.req.headers.cookie??'').split(';').map((v:string)=>v.trim().split('=')));const session=cookies.homeops_session;if(!session)throw new Error('session');const user=(await db.query('SELECT user_id FROM sessions WHERE token_hash=$1 AND expires_at>now()',[sha256(session)])).rows[0];if(!user)throw new Error('session');const token=new URL(info.req.url,'http://local').searchParams.get('token');if(!token)throw new Error('ticket');const ticket=decryptGuacToken(token);if(ticket.expiration<Date.now()||ticket.userId!==user.user_id||!unusedTickets.delete(ticket.nonce))throw new Error('ticket');if(ticket.auditId)await db.query('UPDATE connection_audit SET ok=true,code=$1 WHERE id=$2 AND user_id=$3',['TUNNEL_OPENED',ticket.auditId,user.user_id]);done(true)}catch(error){app.log.warn({reason:error instanceof Error?error.message:'unknown'},'Rejected Guacamole WebSocket');done(false,403,'Forbidden')}})()}; new GuacamoleLite({server:app.server,path:'/api/v1/tunnel',verifyClient}, {host:config.GUACD_HOST,port:config.GUACD_PORT}, {crypt:{cypher:'AES-256-CBC',key:config.GUAC_TOKEN_KEY.padEnd(32,'0').slice(0,32)}}, {processConnectionSettings:(settings:any,callback:any)=>settings.expiration<Date.now()?callback(new Error('Ticket expired')):callback(null,settings)}); }
+async function bootstrap() {
+  await migrate(db);
+  startScheduledScanner(db, app.log);
+  if (config.ADMIN_INITIAL_PASSWORD) {
+    const found=await db.query('SELECT 1 FROM users LIMIT 1');
+    if (!found.rowCount) {
+      await db.query('INSERT INTO users(username,password_hash,role) VALUES($1,$2,$3)',[config.ADMIN_USERNAME,await argon2.hash(config.ADMIN_INITIAL_PASSWORD,{type:argon2.argon2id}), 'admin']);
+      app.log.warn('Initial admin created; remove ADMIN_INITIAL_PASSWORD from the environment');
+    }
+  }
+  const publicDir=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../frontend/dist');
+  await app.register(staticPlugin,{root:publicDir,wildcard:false});
+  app.setNotFoundHandler((request,reply)=>request.url.startsWith('/api/')?reply.code(404).send({error:'NOT_FOUND'}):reply.sendFile('index.html'));
+  await app.listen({host:'0.0.0.0',port:config.PORT});
+
+  const sshTunnel=attachSshTunnel(undefined,{origin:config.APP_ORIGIN,tickets:sshTickets,authenticate:async request=>{
+    const cookies=Object.fromEntries(String(request.headers.cookie??'').split(';').map(value=>{const [name,...parts]=value.trim().split('=');return [name,parts.join('=')];}));
+    const session=cookies.homeops_session;
+    if(!session)return undefined;
+    const user=(await db.query('SELECT user_id FROM sessions WHERE token_hash=$1 AND expires_at>now()',[sha256(session)])).rows[0];
+    return user?{userId:user.user_id}:undefined;
+  },updateAudit:async(auditId,userId,ok,code)=>{await db.query('UPDATE connection_audit SET ok=$1,code=$2 WHERE id=$3 AND user_id=$4',[ok,code,auditId,userId]);},log:app.log});
+  const verifyClient=(info:any,done:(ok:boolean,code?:number,message?:string)=>void)=>{void(async()=>{try{if(info.origin!==config.APP_ORIGIN)throw new Error('origin');const cookies=Object.fromEntries(String(info.req.headers.cookie??'').split(';').map((v:string)=>v.trim().split('=')));const session=cookies.homeops_session;if(!session)throw new Error('session');const user=(await db.query('SELECT user_id FROM sessions WHERE token_hash=$1 AND expires_at>now()',[sha256(session)])).rows[0];if(!user)throw new Error('session');const token=new URL(info.req.url,'http://local').searchParams.get('token');if(!token)throw new Error('ticket');const ticket=decryptGuacToken(token);if(ticket.expiration<Date.now()||ticket.userId!==user.user_id||!unusedTickets.delete(ticket.nonce))throw new Error('ticket');if(ticket.auditId)await db.query('UPDATE connection_audit SET ok=true,code=$1 WHERE id=$2 AND user_id=$3',['TUNNEL_OPENED',ticket.auditId,user.user_id]);done(true)}catch(error){app.log.warn({reason:error instanceof Error?error.message:'unknown'},'Rejected Guacamole WebSocket');done(false,403,'Forbidden')}})()};
+  const guacamole=new GuacamoleLite({noServer:true,verifyClient}, {host:config.GUACD_HOST,port:config.GUACD_PORT}, {crypt:{cypher:'AES-256-CBC',key:config.GUAC_TOKEN_KEY.padEnd(32,'0').slice(0,32)}}, {processConnectionSettings:(settings:any,callback:any)=>settings.expiration<Date.now()?callback(new Error('Ticket expired')):callback(null,settings)});
+  const guacamoleSockets=guacamole.webSocketServer;
+  app.server.on('upgrade',(request,socket,head)=>{
+    if(sshTunnel.accepts(request)){sshTunnel.handleUpgrade(request,socket,head);return;}
+    const url=new URL(request.url??'/','http://local');
+    if(url.pathname!=='/api/v1/tunnel'){socket.destroy();return;}
+    guacamoleSockets.handleUpgrade(request,socket,head,(webSocket:any)=>guacamoleSockets.emit('connection',webSocket,request));
+  });
+}
 bootstrap().catch(error=>{app.log.error(error);process.exit(1)});

@@ -57,8 +57,8 @@ type TunnelDependencies = {
   log: { warn(data: unknown, message: string): void };
 };
 
-export function isSshTunnelPath(pathname: string) {
-  return pathname === '/api/v1/tunnel/ssh' || pathname === '/api/v1/ssh';
+export function isSshTunnelRequest(url: URL) {
+  return (url.pathname === '/api/v1/tunnel' && url.searchParams.get('transport') === 'ssh') || url.pathname === '/api/v1/tunnel/ssh' || url.pathname === '/api/v1/ssh';
 }
 
 function send(socket: WebSocket, message: Record<string, unknown>) {
@@ -70,12 +70,13 @@ function closeUpgrade(socket: Duplex, status = '403 Forbidden') {
   socket.destroy();
 }
 
-export function attachSshTunnel(server: HttpServer, dependencies: TunnelDependencies) {
+export function attachSshTunnel(server: HttpServer | undefined, dependencies: TunnelDependencies) {
   const webSockets = new WebSocketServer({ noServer: true, maxPayload: 128 * 1024 });
 
-  server.on('upgrade', (request, socket, head) => {
+  const accepts = (request: IncomingMessage) => isSshTunnelRequest(new URL(request.url ?? '/', 'http://local'));
+  const handleUpgrade = (request: IncomingMessage, socket: Duplex, head: Buffer) => {
     const url = new URL(request.url ?? '/', 'http://local');
-    if (!isSshTunnelPath(url.pathname)) return;
+    if (!isSshTunnelRequest(url)) return;
     void (async () => {
       try {
         if (request.headers.origin !== dependencies.origin) return closeUpgrade(socket);
@@ -91,7 +92,8 @@ export function attachSshTunnel(server: HttpServer, dependencies: TunnelDependen
         closeUpgrade(socket);
       }
     })();
-  });
+  };
+  server?.on('upgrade', (request, socket, head) => handleUpgrade(request, socket, head));
 
   webSockets.on('connection', (webSocket: WebSocket, _request: IncomingMessage, ticket: SshTicket) => {
     const ssh = new Client();
@@ -156,5 +158,5 @@ export function attachSshTunnel(server: HttpServer, dependencies: TunnelDependen
     ssh.connect(connection);
   });
 
-  return webSockets;
+  return { webSockets, accepts, handleUpgrade };
 }

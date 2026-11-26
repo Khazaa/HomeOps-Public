@@ -368,7 +368,7 @@ test('A-16 logout invalidates REST and WebSocket access', async ({ page }) => {
   expect(socketResult).toBe('rejected');
   const sshSocketResult = await page.evaluate(() => new Promise<string>(resolve => {
     const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
-    const socket = new WebSocket(`${scheme}://${location.host}/api/v1/tunnel/ssh?token=invalid`);
+    const socket = new WebSocket(`${scheme}://${location.host}/api/v1/tunnel?transport=ssh&token=invalid`);
     socket.onopen = () => resolve('opened');
     socket.onerror = () => resolve('rejected');
     socket.onclose = () => resolve('rejected');
